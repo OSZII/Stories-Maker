@@ -4,7 +4,7 @@
 	"version": "0.0.1",
 	"type": "module",
 	"scripts": {
-		"dev": "vite dev",
+		"dev": "vite dev --host",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "svelte-kit sync || echo ''",
@@ -53,6 +53,11 @@
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.1004.0",
 		"@polar-sh/better-auth": "^1.8.2",
-		"@polar-sh/sdk": "^0.46.2"
+		"@polar-sh/sdk": "^0.46.2",
+		"node-cron": "^4.2.1",
+		"pg": "^8.20.0"
+	},
+	"engines": {
+		"node": ">=22.12"
 	}
 }

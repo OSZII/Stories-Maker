@@ -1,4 +1,9 @@
-import { S3Client, PutObjectCommand, DeleteObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import {
+	S3Client,
+	PutObjectCommand,
+	DeleteObjectCommand,
+	GetObjectCommand
+} from '@aws-sdk/client-s3';
 import { env } from '$env/dynamic/private';
 
 const r2 = new S3Client({

@@ -14,17 +14,17 @@ DEFINE → REFINE → SCRIPT → GENERATE → ASSEMBLE
 
 ## Tech Stack Details
 
-| Layer | Choice | Notes |
-|---|---|---|
-| Framework | SvelteKit (Node adapter) | SSR + API routes, deployed on Vercel/Railway/Fly |
-| UI | Svelte 5 + TailwindCSS v4 + DaisyUI v5 | Runes-only (`$state`, `$derived`, `$effect`) |
-| Auth | Better Auth | Email/password + GitHub OAuth, Polar.sh plugin for billing |
-| DB | PostgreSQL + Drizzle ORM | postgres.js driver, connection via `DATABASE_URL` |
-| AI Text | Gemini 2.5 Pro | Via Google Cloud Vertex AI or AI Studio |
-| AI Image | Imagen 3 | Via Vertex AI, supports batch prediction |
-| Storage | Cloudflare R2 | S3-compatible, `@aws-sdk/client-s3` |
-| i18n | Paraglide JS (inlang) | Messages in `messages/en.json` |
-| Scheduling | node-cron (v1) | Migrate to BullMQ + Redis at scale |
+| Layer      | Choice                                 | Notes                                                      |
+| ---------- | -------------------------------------- | ---------------------------------------------------------- |
+| Framework  | SvelteKit (Node adapter)               | SSR + API routes, deployed on Vercel/Railway/Fly           |
+| UI         | Svelte 5 + TailwindCSS v4 + DaisyUI v5 | Runes-only (`$state`, `$derived`, `$effect`)               |
+| Auth       | Better Auth                            | Email/password + GitHub OAuth, Polar.sh plugin for billing |
+| DB         | PostgreSQL + Drizzle ORM               | postgres.js driver, connection via `DATABASE_URL`          |
+| AI Text    | Gemini 2.5 Pro                         | Via Google Cloud Vertex AI or AI Studio                    |
+| AI Image   | Imagen 3                               | Via Vertex AI, supports batch prediction                   |
+| Storage    | Cloudflare R2                          | S3-compatible, `@aws-sdk/client-s3`                        |
+| i18n       | Paraglide JS (inlang)                  | Messages in `messages/en.json`                             |
+| Scheduling | node-cron (v1)                         | Migrate to BullMQ + Redis at scale                         |
 
 ## Route Structure (Planned)
 
@@ -70,20 +70,24 @@ Images served through Cloudflare CDN with `Cache-Control: public, max-age=315360
 ## Caching Strategy
 
 ### Images
+
 R2 images via Cloudflare CDN — immutable cache headers (new generations = new URLs).
 
 ### Story Data (public stories)
+
 1. **v1**: In-memory LRU cache (`lru-cache`) keyed by `story:{storyId}`. Single-server only.
 2. **v1.5**: Serialize reader payload to R2 JSON or Cloudflare KV on publish/update.
 3. **v2**: Redis cache with TTL (when Redis added for BullMQ).
 
 ### Cache Invalidation Events
+
 - Author edits story/characters/locations
 - Author changes selected image for any section
 - Author publishes/unpublishes a chapter
 - Rating average changes (partial update only)
 
 ### Public Discovery
+
 Materialized view or cached sorted list of public stories, refreshed every 5-10 min via cron.
 
 ## Auth Flow

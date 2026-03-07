@@ -5,6 +5,14 @@ import { svelteKitHandler } from 'better-auth/svelte-kit';
 import type { Handle } from '@sveltejs/kit';
 import { getTextDirection } from '$lib/paraglide/runtime';
 import { paraglideMiddleware } from '$lib/paraglide/server';
+import cron from 'node-cron';
+import { pollPendingJobs } from '$lib/server/jobs/poll-generations';
+
+if (!building) {
+	cron.schedule('* * * * *', () => {
+		pollPendingJobs().catch((err) => console.error('Poll cron error:', err));
+	});
+}
 
 const handleParaglide: Handle = ({ event, resolve }) =>
 	paraglideMiddleware(event.request, ({ request, locale }) => {

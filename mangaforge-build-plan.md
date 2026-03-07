@@ -8,17 +8,17 @@ MangaForge (or "YourStory") is a SaaS that guides users through a structured pip
 
 ## 2. Tech Stack
 
-| Layer | Choice |
-|---|---|
-| Framework | SvelteKit (SSR + API routes) |
-| Auth + Billing | Better Auth with Polar.sh plugin (handles user/session/account tables + subscriptions/checkout/webhooks) |
-| DB | PostgreSQL |
-| ORM | Drizzle ORM |
-| AI Text | Gemini 2.5 Pro (via Google Cloud Vertex AI / AI Studio direct) |
-| AI Image | Imagen 3 (Google's image model — "Nano Banana 2" doesn't exist as a public model name, so confirm your exact model access; Imagen 3 is Google's current best for generation) |
-| Image Storage | Cloudflare R2 (S3-compatible) |
-| Scheduling | node-cron inside SvelteKit process (v1), migrate to BullMQ + Redis later |
-| Hosting | Vercel / Railway / Fly.io (Node adapter for SvelteKit) |
+| Layer          | Choice                                                                                                                                                                       |
+| -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Framework      | SvelteKit (SSR + API routes)                                                                                                                                                 |
+| Auth + Billing | Better Auth with Polar.sh plugin (handles user/session/account tables + subscriptions/checkout/webhooks)                                                                     |
+| DB             | PostgreSQL                                                                                                                                                                   |
+| ORM            | Drizzle ORM                                                                                                                                                                  |
+| AI Text        | Gemini 2.5 Pro (via Google Cloud Vertex AI / AI Studio direct)                                                                                                               |
+| AI Image       | Imagen 3 (Google's image model — "Nano Banana 2" doesn't exist as a public model name, so confirm your exact model access; Imagen 3 is Google's current best for generation) |
+| Image Storage  | Cloudflare R2 (S3-compatible)                                                                                                                                                |
+| Scheduling     | node-cron inside SvelteKit process (v1), migrate to BullMQ + Redis later                                                                                                     |
+| Hosting        | Vercel / Railway / Fly.io (Node adapter for SvelteKit)                                                                                                                       |
 
 > **Important note on image model:** Double-check what model you actually have access to. Google's image generation model through Vertex AI is **Imagen 3**. "Nano Banana 2" isn't a publicly documented model name — you might be confusing it with an internal codename or a different provider. This matters because your entire product depends on consistent character generation, and not all models support character consistency well. You may need to look into reference image injection or IP-adapter style workflows if native consistency isn't sufficient.
 
@@ -393,29 +393,29 @@ CREATE INDEX idx_story_comment_parent ON story_comment(parent_comment_id);
 
 ### Cost Structure (estimate your actual API costs)
 
-| Action | Credits | Approx Google Cost |
-|---|---|---|
-| AI story expansion (text, ~2k tokens out) | 1 | ~$0.005 |
-| Character/location description gen (text) | 1 | ~$0.003 |
-| Image prompt generation (text) | 1 | ~$0.003 |
-| Character reference sheet (1 image) | 5 | ~$0.04 |
-| Location reference sheet (1 image) | 5 | ~$0.04 |
-| Section panel image (1 image) | 3 | ~$0.03 |
-| Panel regeneration | 3 | ~$0.03 |
+| Action                                    | Credits | Approx Google Cost |
+| ----------------------------------------- | ------- | ------------------ |
+| AI story expansion (text, ~2k tokens out) | 1       | ~$0.005            |
+| Character/location description gen (text) | 1       | ~$0.003            |
+| Image prompt generation (text)            | 1       | ~$0.003            |
+| Character reference sheet (1 image)       | 5       | ~$0.04             |
+| Location reference sheet (1 image)        | 5       | ~$0.04             |
+| Section panel image (1 image)             | 3       | ~$0.03             |
+| Panel regeneration                        | 3       | ~$0.03             |
 
 ### Subscription Tiers
 
-| Plan | Monthly Price | Credits/mo | Extras |
-|---|---|---|---|
-| Free | $0 | 50 | 1 story, watermarked exports |
-| Starter | $12/mo | 500 | 3 stories, no watermark |
-| Pro | $29/mo | 1,500 | Unlimited stories, priority queue, bulk gen |
-| Studio | $59/mo | 4,000 | Everything + API access, team sharing |
+| Plan    | Monthly Price | Credits/mo | Extras                                      |
+| ------- | ------------- | ---------- | ------------------------------------------- |
+| Free    | $0            | 50         | 1 story, watermarked exports                |
+| Starter | $12/mo        | 500        | 3 stories, no watermark                     |
+| Pro     | $29/mo        | 1,500      | Unlimited stories, priority queue, bulk gen |
+| Studio  | $59/mo        | 4,000      | Everything + API access, team sharing       |
 
 Credit top-ups: $5 = 200 credits, $10 = 450, $25 = 1,200. (Set up as one-time products in Polar.sh)
 
 > **Key business logic:** Always reserve credits BEFORE submitting generation jobs. If job fails, refund to ledger. This prevents overdraft.
-> 
+>
 > **Polar.sh integration:** Better Auth's Polar plugin handles subscriptions, checkout, and webhooks. The only thing you do on your end is: when a Polar webhook fires (subscription renewal or one-time top-up purchase), add the corresponding credits to `user.credits_remaining` and log it in `credit_ledger`. That's it.
 
 ---
@@ -437,7 +437,7 @@ const vertex = new VertexAI({ project: 'your-project', location: 'us-central1' }
 const model = vertex.getGenerativeModel({ model: 'gemini-2.5-pro' });
 
 export async function expandStory(synopsis: string, genre: string, chapterCount: number) {
-    const prompt = `You are a professional manga/manhwa story writer...
+	const prompt = `You are a professional manga/manhwa story writer...
     [system instructions for structure, pacing, detail level]
     
     Genre: ${genre}
@@ -445,9 +445,9 @@ export async function expandStory(synopsis: string, genre: string, chapterCount:
     Synopsis: ${synopsis}
     
     Write a detailed story outline...`;
-    
-    const result = await model.generateContent(prompt);
-    return result.response.text();
+
+	const result = await model.generateContent(prompt);
+	return result.response.text();
 }
 ```
 
@@ -460,10 +460,10 @@ For bulk panel generation, use **Vertex AI Batch Prediction**:
 import { PredictionServiceClient } from '@google-cloud/aiplatform';
 
 export async function submitBatchImageJob(prompts: { id: string; prompt: string }[]) {
-    // 1. Write prompts to a JSONL file on GCS
-    // 2. Submit batch prediction job
-    // 3. Store operation ID in generation_job.google_operation_ids
-    // 4. Return job ID for polling
+	// 1. Write prompts to a JSONL file on GCS
+	// 2. Submit batch prediction job
+	// 3. Store operation ID in generation_job.google_operation_ids
+	// 4. Return job ID for polling
 }
 ```
 
@@ -477,15 +477,16 @@ import cron from 'node-cron';
 
 // Poll every 30 seconds for pending batch jobs
 cron.schedule('*/30 * * * * *', async () => {
-    const pendingJobs = await db.select()
-        .from(generationJob)
-        .where(eq(generationJob.status, 'processing'));
-    
-    for (const job of pendingJobs) {
-        // Check Google operation status
-        // If complete: download images → upload to R2 → update DB → update credits
-        // If failed: mark failed items, refund reserved credits
-    }
+	const pendingJobs = await db
+		.select()
+		.from(generationJob)
+		.where(eq(generationJob.status, 'processing'));
+
+	for (const job of pendingJobs) {
+		// Check Google operation status
+		// If complete: download images → upload to R2 → update DB → update credits
+		// If failed: mark failed items, refund reserved credits
+	}
 });
 ```
 
@@ -500,19 +501,21 @@ cron.schedule('*/30 * * * * *', async () => {
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 const r2 = new S3Client({
-    region: 'auto',
-    endpoint: `https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: { accessKeyId: R2_ACCESS_KEY, secretAccessKey: R2_SECRET_KEY }
+	region: 'auto',
+	endpoint: `https://${CF_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+	credentials: { accessKeyId: R2_ACCESS_KEY, secretAccessKey: R2_SECRET_KEY }
 });
 
 export async function uploadImage(buffer: Buffer, path: string): Promise<string> {
-    await r2.send(new PutObjectCommand({
-        Bucket: 'mangaforge-images',
-        Key: path, // e.g. "users/{userId}/stories/{storyId}/characters/{charId}/ref-001.png"
-        Body: buffer,
-        ContentType: 'image/png',
-    }));
-    return `https://images.mangaforge.app/${path}`; // R2 custom domain
+	await r2.send(
+		new PutObjectCommand({
+			Bucket: 'mangaforge-images',
+			Key: path, // e.g. "users/{userId}/stories/{storyId}/characters/{charId}/ref-001.png"
+			Body: buffer,
+			ContentType: 'image/png'
+		})
+	);
+	return `https://images.mangaforge.app/${path}`; // R2 custom domain
 }
 ```
 
@@ -548,6 +551,7 @@ For public stories, cache the full reader payload (story metadata + chapters + s
 ### 8.3 Cache Invalidation
 
 Invalidation events (clear cache for story when any of these happen):
+
 - Author edits story metadata, characters, locations
 - Author changes selected image for any section
 - Author publishes or unpublishes a chapter
@@ -602,7 +606,7 @@ Input: {
     previous_section_prompt: "..." // for visual continuity
 }
 
-System: "You generate image prompts for manga/manhwa panels. 
+System: "You generate image prompts for manga/manhwa panels.
          You MUST incorporate the exact character visual descriptions provided.
          You MUST maintain visual consistency with previous panels.
          Focus on: composition, camera angle, mood, lighting, action.
@@ -726,16 +730,16 @@ src/routes/
 
 ## 12. Development Roadmap
 
-| Phase | Duration | Deliverables |
-|---|---|---|
-| **Phase 0: Setup** | 1 week | SvelteKit scaffold, Better Auth + Polar.sh plugin, Drizzle + Postgres, R2 bucket, Google Cloud project + API keys |
-| **Phase 1: Story + Characters** | 2 weeks | Story CRUD (with soft deletes), character/location CRUD, style preset system, AI story expansion, AI character/location description generation |
-| **Phase 2: Scripting Engine** | 2 weeks | Chapter splitting logic, section breakdown, section_character + section_dialogue management, AI prompt generation chain, prompt editing UI |
-| **Phase 3: Image Generation** | 2 weeks | Single image gen, batch job system, polling, R2 upload pipeline, generation dashboard, version history UI, generation_params + api_usage_log tracking |
-| **Phase 4: Reader + Export** | 1 week | Vertical scroll manga reader, basic PDF export, image download |
-| **Phase 5: Billing** | 3-4 days | Polar.sh plans + top-up products in dashboard, webhook handler to add credits, credit deduction logic, margin dashboard (api_usage_log) |
-| **Phase 6: Public + Social** | 1-2 weeks | Story visibility/sharing, public reader with caching, browse/discovery page, ratings (0-10 half-star), comments with threading + spoiler tags |
-| **Phase 7: Polish + Launch** | 1-2 weeks | Error handling, loading states, onboarding flow, landing page, cache invalidation testing, beta launch |
+| Phase                           | Duration  | Deliverables                                                                                                                                          |
+| ------------------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Phase 0: Setup**              | 1 week    | SvelteKit scaffold, Better Auth + Polar.sh plugin, Drizzle + Postgres, R2 bucket, Google Cloud project + API keys                                     |
+| **Phase 1: Story + Characters** | 2 weeks   | Story CRUD (with soft deletes), character/location CRUD, style preset system, AI story expansion, AI character/location description generation        |
+| **Phase 2: Scripting Engine**   | 2 weeks   | Chapter splitting logic, section breakdown, section_character + section_dialogue management, AI prompt generation chain, prompt editing UI            |
+| **Phase 3: Image Generation**   | 2 weeks   | Single image gen, batch job system, polling, R2 upload pipeline, generation dashboard, version history UI, generation_params + api_usage_log tracking |
+| **Phase 4: Reader + Export**    | 1 week    | Vertical scroll manga reader, basic PDF export, image download                                                                                        |
+| **Phase 5: Billing**            | 3-4 days  | Polar.sh plans + top-up products in dashboard, webhook handler to add credits, credit deduction logic, margin dashboard (api_usage_log)               |
+| **Phase 6: Public + Social**    | 1-2 weeks | Story visibility/sharing, public reader with caching, browse/discovery page, ratings (0-10 half-star), comments with threading + spoiler tags         |
+| **Phase 7: Polish + Launch**    | 1-2 weeks | Error handling, loading states, onboarding flow, landing page, cache invalidation testing, beta launch                                                |
 
 **Total: ~12-14 weeks solo developer.**
 
@@ -743,15 +747,15 @@ src/routes/
 
 ## 13. Estimated Monthly Infrastructure Costs (at 100 active users)
 
-| Service | Estimated Cost |
-|---|---|
-| PostgreSQL (Neon/Supabase free → $25) | $0–25 |
-| SvelteKit hosting (Railway/Fly) | $5–20 |
-| Cloudflare R2 (10GB storage, 1M reads) | ~$1–3 |
-| Google Cloud AI (variable, depends on usage) | $200–800 |
-| Polar.sh fees (4% + $0.40 per transaction) | variable |
-| Domain + misc | $15 |
-| **Total** | **~$250–900** |
+| Service                                      | Estimated Cost |
+| -------------------------------------------- | -------------- |
+| PostgreSQL (Neon/Supabase free → $25)        | $0–25          |
+| SvelteKit hosting (Railway/Fly)              | $5–20          |
+| Cloudflare R2 (10GB storage, 1M reads)       | ~$1–3          |
+| Google Cloud AI (variable, depends on usage) | $200–800       |
+| Polar.sh fees (4% + $0.40 per transaction)   | variable       |
+| Domain + misc                                | $15            |
+| **Total**                                    | **~$250–900**  |
 
 Your break-even at $29/mo Pro plan is roughly 10-30 paying users depending on their generation volume. The key lever is managing AI costs — batch prediction discounts and caching common prompts will be critical.
 

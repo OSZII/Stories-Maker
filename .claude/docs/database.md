@@ -15,7 +15,7 @@ Config: `drizzle.config.ts`
 ## Entity Relationship Diagram
 
 ```
-user (Better Auth, extended with credits_remaining)
+user (Better Auth, extended with subscription_credits + purchased_credits)
  ├── credit_ledger
  └── story
       ├── style_preset (reusable art style templates)
@@ -38,8 +38,11 @@ user (Better Auth, extended with credits_remaining)
 
 ### Credits
 
-- **user.credits_remaining** (INT) — added column on Better Auth user table
-- **credit_ledger** — every credit change. Fields: `amount` (+/-), `balance_after`, `reason` (subscription_renewal | image_gen | text_gen | topup | refund), `reference_id` (links to job or Polar order)
+Dual-balance system: subscription credits reset & expire each billing cycle; purchased credits never expire. When consuming credits, **subscription credits are used first** (since they expire), then purchased credits.
+
+- **user.subscription_credits** (INT) — credits from current billing cycle, reset on renewal, expire at cycle end
+- **user.purchased_credits** (INT) — credits from top-up packs, never expire, carry over indefinitely
+- **credit_ledger** — every credit change. Fields: `amount` (+/-), `credit_type` (subscription | purchased), `balance_after_subscription`, `balance_after_purchased`, `reason` (subscription_renewal | subscription_expiry | image_gen | text_gen | topup | refund), `reference_id` (links to job or Polar order), `expires_at` (set for subscription grants, NULL for purchased)
 
 ### Style Presets
 
@@ -75,23 +78,30 @@ user (Better Auth, extended with credits_remaining)
 
 ## Credit Costs
 
-| Action | Credits |
-|---|---|
-| AI story expansion (text) | 1 |
-| Character/location description gen (text) | 1 |
-| Image prompt generation (text) | 1 |
-| Character reference sheet (1 image) | 5 |
-| Location reference sheet (1 image) | 5 |
-| Section panel image (1 image) | 3 |
-| Panel regeneration | 3 |
+| Action                                    | Credits |
+| ----------------------------------------- | ------- |
+| AI story expansion (text)                 | 1       |
+| Character/location description gen (text) | 1       |
+| Image prompt generation (text)            | 1       |
+| Character reference sheet (1 image)       | 5       |
+| Location reference sheet (1 image)        | 5       |
+| Section panel image (1 image)             | 3       |
+| Panel regeneration                        | 3       |
 
 ## Subscription Tiers
 
-| Plan | Price | Credits/mo | Limits |
-|---|---|---|---|
-| Free | $0 | 50 | 1 story, watermarked exports |
-| Starter | $12/mo | 500 | 3 stories, no watermark |
-| Pro | $29/mo | 1,500 | Unlimited stories, priority queue, bulk gen |
-| Studio | $59/mo | 4,000 | Everything + API access, team sharing |
+| Plan    | Price  | Credits/mo | Limits                                      |
+| ------- | ------ | ---------- | ------------------------------------------- |
+| Free    | $0     | 50         | 1 story, watermarked exports                |
+| Starter | $12/mo | 500        | 3 stories, no watermark                     |
+| Pro     | $29/mo | 1,500      | Unlimited stories, priority queue, bulk gen |
+| Studio  | $59/mo | 4,000      | Everything + API access, team sharing       |
 
-Top-ups: $5 = 200, $10 = 450, $25 = 1,200 credits (Polar.sh one-time products).
+Top-ups (never expire): $5 = 200, $10 = 450, $25 = 1,200 purchased credits (Polar.sh one-time products).
+
+## Credit Lifecycle
+
+1. **Subscription renewal** — user receives their plan's credits as `subscription_credits`; any unused subscription credits from the previous cycle are expired (logged as `subscription_expiry`)
+2. **Top-up purchase** — credits added to `purchased_credits`, no expiry
+3. **Credit consumption** — deduct from `subscription_credits` first (they expire anyway), then `purchased_credits`; a single action may produce two ledger entries if it spans both pools
+4. **Refund** — credits returned to the same pool they were originally deducted from (tracked via `credit_type` on the original ledger entry)
