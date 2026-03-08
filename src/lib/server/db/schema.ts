@@ -156,6 +156,7 @@ export const characterImage = pgTable('character_image', {
 		.references(() => character.id, { onDelete: 'cascade' }),
 	imageUrl: text('image_url').notNull(),
 	imageType: text('image_type').notNull().default('reference'), // reference | expression_sheet | pose_sheet
+	prompt: text('prompt'),
 	version: integer('version').notNull().default(1),
 	isPrimary: boolean('is_primary').notNull().default(false),
 	generationJobId: text('generation_job_id'),
@@ -211,6 +212,7 @@ export const locationImage = pgTable('location_image', {
 		.references(() => location.id, { onDelete: 'cascade' }),
 	imageUrl: text('image_url').notNull(),
 	imageType: text('image_type').notNull().default('reference'),
+	prompt: text('prompt'),
 	version: integer('version').notNull().default(1),
 	isPrimary: boolean('is_primary').notNull().default(false),
 	generationJobId: text('generation_job_id'),

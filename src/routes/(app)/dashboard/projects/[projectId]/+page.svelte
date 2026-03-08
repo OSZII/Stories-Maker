@@ -44,6 +44,187 @@
 
 	let selectedCharCount = $derived(Object.keys(characterAiInputs).length);
 
+	// Reference image generation state
+	let generatingRefImage = $state<Record<string, boolean>>({});
+	let refImageBatchQueue = $state<
+		Array<{ entityType: 'character' | 'location'; entityId: string; editPrompt?: string }>
+	>([]);
+	let submittingRefBatch = $state(false);
+	let editImageDialog = $state<HTMLDialogElement | null>(null);
+	let editImageEntityType = $state<'character' | 'location'>('character');
+	let editImageEntityId = $state('');
+	let editImageEntityName = $state('');
+	let editImagePrompt = $state('');
+	let editImageMode = $state<'fast' | 'batch'>('fast');
+	let charImageHistoryId = $state<string | null>(null);
+	let locImageHistoryId = $state<string | null>(null);
+
+	// Ref image batch polling
+	let refBatchJobId = $state<string | null>(null);
+	let refBatchStatus = $state<{
+		status: string;
+		totalItems: number;
+		completedItems: number;
+		failedItems: number;
+	} | null>(null);
+
+	$effect(() => {
+		if (!refBatchJobId) return;
+		const interval = setInterval(async () => {
+			const res = await fetch(`/api/ai/generation-status?jobId=${refBatchJobId}`);
+			if (!res.ok) return;
+			const { job } = await res.json();
+			if (!job) return;
+			refBatchStatus = {
+				status: job.status,
+				totalItems: job.totalItems,
+				completedItems: job.completedItems,
+				failedItems: job.failedItems
+			};
+			if (['completed', 'failed', 'partial'].includes(job.status)) {
+				clearInterval(interval);
+				refBatchJobId = null;
+				submittingRefBatch = false;
+				await invalidateAll();
+				addToast('Reference images generated!', 'success');
+			}
+		}, 5000);
+		return () => clearInterval(interval);
+	});
+
+	function addToRefBatch(entityType: 'character' | 'location', entityId: string) {
+		if (refImageBatchQueue.some((i) => i.entityType === entityType && i.entityId === entityId))
+			return;
+		refImageBatchQueue = [...refImageBatchQueue, { entityType, entityId }];
+	}
+
+	function removeFromRefBatch(entityType: 'character' | 'location', entityId: string) {
+		refImageBatchQueue = refImageBatchQueue.filter(
+			(i) => !(i.entityType === entityType && i.entityId === entityId)
+		);
+	}
+
+	function isInRefBatch(entityType: 'character' | 'location', entityId: string) {
+		return refImageBatchQueue.some(
+			(i) => i.entityType === entityType && i.entityId === entityId
+		);
+	}
+
+	async function generateRefImageFast(
+		entityType: 'character' | 'location',
+		entityId: string,
+		editPrompt?: string
+	) {
+		const key = `${entityType}-${entityId}`;
+		generatingRefImage = { ...generatingRefImage, [key]: true };
+		try {
+			const res = await fetch('/api/ai/generate-reference-image', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					storyId: data.project.id,
+					entityType,
+					entityId,
+					mode: 'fast',
+					editPrompt
+				})
+			});
+			if (!res.ok) {
+				if (res.status === 402) {
+					addToast('No credits available', 'warning', {
+						text: 'Please upgrade your plan or buy a credit pack',
+						href: '/dashboard/billing'
+					});
+				} else {
+					addToast('Failed to generate image', 'error');
+				}
+				return;
+			}
+			await invalidateAll();
+			addToast('Image generated!', 'success');
+		} finally {
+			const { [key]: _, ...rest } = generatingRefImage;
+			generatingRefImage = rest;
+		}
+	}
+
+	async function submitRefBatch() {
+		if (refImageBatchQueue.length === 0) return;
+		submittingRefBatch = true;
+		try {
+			const res = await fetch('/api/ai/generate-reference-images-batch', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({
+					storyId: data.project.id,
+					items: refImageBatchQueue
+				})
+			});
+			if (!res.ok) {
+				if (res.status === 402) {
+					addToast('No credits available', 'warning', {
+						text: 'Please upgrade your plan or buy a credit pack',
+						href: '/dashboard/billing'
+					});
+				} else {
+					addToast('Failed to start batch generation', 'error');
+				}
+				submittingRefBatch = false;
+				return;
+			}
+			const result = await res.json();
+			refBatchJobId = result.jobId;
+			refBatchStatus = {
+				status: 'processing',
+				totalItems: result.totalImages,
+				completedItems: 0,
+				failedItems: 0
+			};
+			refImageBatchQueue = [];
+		} catch {
+			submittingRefBatch = false;
+		}
+	}
+
+	function openEditImageModal(
+		entityType: 'character' | 'location',
+		entityId: string,
+		entityName: string,
+		mode: 'fast' | 'batch'
+	) {
+		editImageEntityType = entityType;
+		editImageEntityId = entityId;
+		editImageEntityName = entityName;
+		editImagePrompt = '';
+		editImageMode = mode;
+		editImageDialog?.showModal();
+	}
+
+	async function submitEditImage() {
+		editImageDialog?.close();
+		if (editImageMode === 'fast') {
+			await generateRefImageFast(editImageEntityType, editImageEntityId, editImagePrompt);
+		} else {
+			refImageBatchQueue = [
+				...refImageBatchQueue.filter(
+					(i) =>
+						!(i.entityType === editImageEntityType && i.entityId === editImageEntityId)
+				),
+				{
+					entityType: editImageEntityType,
+					entityId: editImageEntityId,
+					editPrompt: editImagePrompt
+				}
+			];
+		}
+	}
+
+	function getPrimaryImage(
+		images: Array<{ imageUrl: string; isPrimary: boolean; version: number; prompt: string | null; createdAt: Date }>
+	) {
+		return images.find((i) => i.isPrimary) || images[0] || null;
+	}
+
 	// Image generation state
 	let generatingImages = $state(false);
 	let generationMode = $state<'batch' | 'fast' | null>(null);
@@ -461,6 +642,39 @@
 		locationsDialog?.close();
 		generateLocationsAi(locationsModalInput);
 	}
+
+	const R2_BASE = 'https://stories-maker-bucket.ostojicstefan.com';
+
+	function getCharacterImageUrl(character: { id: string; images: Array<{ imageUrl: string; isPrimary: boolean }> }) {
+		const primaryImageIndex = character.images.findIndex((img) => img.isPrimary);
+		return `${R2_BASE}/stories/${data.project.id}/characters/${character.id}/${character.images[primaryImageIndex].imageUrl}.png`;
+	}
+
+	function getLocationImageUrl(loc: { id: string; images: Array<{ imageUrl: string; isPrimary: boolean }> }) {
+		const primaryImageIndex = loc.images.findIndex((img) => img.isPrimary);
+		return `${R2_BASE}/stories/${data.project.id}/locations/${loc.id}/${loc.images[primaryImageIndex].imageUrl}.png`;
+	}
+
+	function getCharImageHistoryUrl(charId: string, imageUrl: string) {
+		return `${R2_BASE}/stories/${data.project.id}/characters/${charId}/${imageUrl}.png`;
+	}
+
+	function getLocImageHistoryUrl(locId: string, imageUrl: string) {
+		return `${R2_BASE}/stories/${data.project.id}/locations/${locId}/${imageUrl}.png`;
+	}
+
+	// Image preview modal
+	let previewImageUrl = $state<string | null>(null);
+	let previewImageDialog = $state<HTMLDialogElement | null>(null);
+
+	function openImagePreview(url: string) {
+		previewImageUrl = null;
+		// Wait a tick so the old image is cleared before showing the modal
+		queueMicrotask(() => {
+			previewImageUrl = url;
+			previewImageDialog?.showModal();
+		});
+	}
 </script>
 
 <div class="max-w-5xl p-8">
@@ -667,6 +881,8 @@
 					{#if data.characters.length > 0}
 						<div class="mt-2 divide-y divide-base-300">
 							{#each data.characters as char}
+								{@const primaryImg = char.images ? getPrimaryImage(char.images) : null}
+								{@const isGenChar = generatingRefImage[`character-${char.id}`]}
 								<div class="py-3">
 									{#if editingCharacterId === char.id}
 										<form
@@ -715,39 +931,91 @@
 											</div>
 										</form>
 									{:else}
-										<div class="flex items-start justify-between gap-3">
-											<div>
-												<div class="flex items-center gap-2">
-													<span class="font-medium">{char.name}</span>
-													<span class="badge badge-outline badge-xs">{char.role}</span>
-												</div>
-												{#if char.description}
-													<p class="mt-1 text-sm text-base-content/60">{char.description}</p>
-												{/if}
-												{#if char.visualDescription}
-													<p class="mt-1 text-xs text-base-content/40 italic">
-														{char.visualDescription}
-													</p>
+										<div class="flex items-start gap-4">
+											<!-- Character image on the left -->
+											<div class="flex shrink-0 flex-col items-center gap-1">
+												{#if primaryImg}
+													<!-- svelte-ignore a11y_click_events_have_key_events -->
+													<!-- svelte-ignore a11y_no_static_element_interactions -->
+													<div class="relative h-24 w-24 cursor-pointer overflow-hidden rounded-lg border-2 border-base-300" onclick={() => openImagePreview(getCharacterImageUrl(char))}>
+														<img src={getCharacterImageUrl(char)} alt={char.name} class="h-full w-full object-cover" />
+													</div>
+													<div class="flex gap-0.5">
+														<button class="btn btn-xs btn-ghost" title="Edit image (fast, 2 credits)" onclick={() => openEditImageModal('character', char.id, char.name, 'fast')} disabled={isGenChar}>Edit</button>
+														<button class="btn btn-xs btn-ghost" title="Edit image (batch, 1 credit)" onclick={() => openEditImageModal('character', char.id, char.name, 'batch')} disabled={isGenChar}>Batch</button>
+													</div>
+													{#if char.images && char.images.length > 1}
+														<button class="btn btn-xs btn-ghost" onclick={() => (charImageHistoryId = charImageHistoryId === char.id ? null : char.id)}>
+															History ({char.images.length})
+														</button>
+													{/if}
+												{:else if isGenChar}
+													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300">
+														<span class="loading loading-sm loading-spinner"></span>
+													</div>
+												{:else}
+													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300 text-base-content/30">
+														<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" /></svg>
+													</div>
 												{/if}
 											</div>
-											<div class="flex shrink-0 gap-1">
-												<button
-													class="btn btn-xs {char.id in characterAiInputs ? 'btn-accent' : 'btn-ghost'}"
-													title="Configure AI description generation"
-													onclick={() => openCharAiModal(char.id, char.name)}
-												>
-													AI
-												</button>
-												<button
-													class="btn btn-ghost btn-xs"
-													onclick={() => (editingCharacterId = char.id)}
-												>
-													Edit
-												</button>
-												<form method="post" action="?/deleteCharacter" use:enhance>
-													<input type="hidden" name="characterId" value={char.id} />
-													<button class="btn text-error btn-ghost btn-xs">Del</button>
-												</form>
+											<!-- Character info -->
+											<div class="flex-1">
+												<div class="flex items-start justify-between gap-3">
+													<div>
+														<div class="flex items-center gap-2">
+															<span class="font-medium">{char.name}</span>
+															<span class="badge badge-outline badge-xs">{char.role}</span>
+															{#if isInRefBatch('character', char.id)}
+																<span class="badge badge-xs badge-info">queued</span>
+															{/if}
+														</div>
+														{#if char.description}
+															<p class="mt-1 text-sm text-base-content/60">{char.description}</p>
+														{/if}
+														{#if char.visualDescription}
+															<p class="mt-1 text-xs text-base-content/40 italic">{char.visualDescription}</p>
+														{/if}
+													</div>
+													<div class="flex shrink-0 flex-col gap-1">
+														<div class="flex gap-1">
+															<button
+																class="btn btn-xs {char.id in characterAiInputs ? 'btn-accent' : 'btn-ghost'}"
+																title="Configure AI description generation"
+																onclick={() => openCharAiModal(char.id, char.name)}
+															>AI</button>
+															<button class="btn btn-ghost btn-xs" onclick={() => (editingCharacterId = char.id)}>Edit</button>
+															<form method="post" action="?/deleteCharacter" use:enhance>
+																<input type="hidden" name="characterId" value={char.id} />
+																<button class="btn text-error btn-ghost btn-xs">Del</button>
+															</form>
+														</div>
+														<div class="flex gap-1">
+															<button class="btn btn-xs btn-secondary" title="Generate image (2 credits)" onclick={() => generateRefImageFast('character', char.id)} disabled={isGenChar || submittingRefBatch}>
+																{#if isGenChar}<span class="loading loading-xs loading-spinner"></span>{/if}
+																Fast
+															</button>
+															<button class="btn btn-xs btn-outline" title="Add to batch (1 credit)" onclick={() => { if (isInRefBatch('character', char.id)) { removeFromRefBatch('character', char.id); } else { addToRefBatch('character', char.id); } }} disabled={submittingRefBatch}>
+																{isInRefBatch('character', char.id) ? 'Unqueue' : 'Batch'}
+															</button>
+														</div>
+													</div>
+												</div>
+												<!-- Image history -->
+												{#if charImageHistoryId === char.id && char.images && char.images.length > 1}
+													<div class="mt-2 flex flex-wrap gap-2 rounded-lg bg-base-300 p-2">
+														{#each char.images as img}
+															<!-- svelte-ignore a11y_click_events_have_key_events -->
+															<!-- svelte-ignore a11y_no_static_element_interactions -->
+															<div class="relative h-16 w-16 cursor-pointer overflow-hidden rounded border-2 {img.isPrimary ? 'border-primary' : 'border-base-content/10'}" title="v{img.version}{img.prompt ? ` — ${img.prompt.substring(0, 80)}` : ''}" onclick={() => openImagePreview(getCharImageHistoryUrl(char.id, img.imageUrl))}>
+																<img src={getCharImageHistoryUrl(char.id, img.imageUrl)} alt="v{img.version}" class="h-full w-full object-cover" />
+																{#if img.isPrimary}
+																	<div class="absolute top-0 right-0"><span class="badge badge-xs badge-primary">cur</span></div>
+																{/if}
+															</div>
+														{/each}
+													</div>
+												{/if}
 											</div>
 										</div>
 									{/if}
@@ -841,6 +1109,8 @@
 					{#if data.locations.length > 0}
 						<div class="mt-2 divide-y divide-base-300">
 							{#each data.locations as loc}
+								{@const primaryLocImg = loc.images ? getPrimaryImage(loc.images) : null}
+								{@const isGenLoc = generatingRefImage[`location-${loc.id}`]}
 								<div class="py-3">
 									{#if editingLocationId === loc.id}
 										<form
@@ -881,24 +1151,82 @@
 											</div>
 										</form>
 									{:else}
-										<div class="flex items-start justify-between gap-3">
-											<div>
-												<span class="font-medium">{loc.name}</span>
-												{#if loc.description}
-													<p class="mt-1 text-sm text-base-content/60">{loc.description}</p>
+										<div class="flex items-start gap-4">
+											<!-- Location image on the left -->
+											<div class="flex shrink-0 flex-col items-center gap-1">
+												{#if primaryLocImg}
+													<!-- svelte-ignore a11y_click_events_have_key_events -->
+													<!-- svelte-ignore a11y_no_static_element_interactions -->
+													<div class="relative h-24 w-24 cursor-pointer overflow-hidden rounded-lg border-2 border-base-300" onclick={() => openImagePreview(getLocationImageUrl(loc))}>
+														<img src={getLocationImageUrl(loc)} alt={loc.name} class="h-full w-full object-cover" />
+													</div>
+													<div class="flex gap-0.5">
+														<button class="btn btn-xs btn-ghost" title="Edit image (fast, 2 credits)" onclick={() => openEditImageModal('location', loc.id, loc.name, 'fast')} disabled={isGenLoc}>Edit</button>
+														<button class="btn btn-xs btn-ghost" title="Edit image (batch, 1 credit)" onclick={() => openEditImageModal('location', loc.id, loc.name, 'batch')} disabled={isGenLoc}>Batch</button>
+													</div>
+													{#if loc.images && loc.images.length > 1}
+														<button class="btn btn-xs btn-ghost" onclick={() => (locImageHistoryId = locImageHistoryId === loc.id ? null : loc.id)}>
+															History ({loc.images.length})
+														</button>
+													{/if}
+												{:else if isGenLoc}
+													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300">
+														<span class="loading loading-sm loading-spinner"></span>
+													</div>
+												{:else}
+													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300 text-base-content/30">
+														<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" /></svg>
+													</div>
 												{/if}
 											</div>
-											<div class="flex shrink-0 gap-1">
-												<button
-													class="btn btn-ghost btn-xs"
-													onclick={() => (editingLocationId = loc.id)}
-												>
-													Edit
-												</button>
-												<form method="post" action="?/deleteLocation" use:enhance>
-													<input type="hidden" name="locationId" value={loc.id} />
-													<button class="btn text-error btn-ghost btn-xs">Del</button>
-												</form>
+											<!-- Location info -->
+											<div class="flex-1">
+												<div class="flex items-start justify-between gap-3">
+													<div>
+														<div class="flex items-center gap-2">
+															<span class="font-medium">{loc.name}</span>
+															{#if isInRefBatch('location', loc.id)}
+																<span class="badge badge-xs badge-info">queued</span>
+															{/if}
+														</div>
+														{#if loc.description}
+															<p class="mt-1 text-sm text-base-content/60">{loc.description}</p>
+														{/if}
+													</div>
+													<div class="flex shrink-0 flex-col gap-1">
+														<div class="flex gap-1">
+															<button class="btn btn-ghost btn-xs" onclick={() => (editingLocationId = loc.id)}>Edit</button>
+															<form method="post" action="?/deleteLocation" use:enhance>
+																<input type="hidden" name="locationId" value={loc.id} />
+																<button class="btn text-error btn-ghost btn-xs">Del</button>
+															</form>
+														</div>
+														<div class="flex gap-1">
+															<button class="btn btn-xs btn-secondary" title="Generate image (2 credits)" onclick={() => generateRefImageFast('location', loc.id)} disabled={isGenLoc || submittingRefBatch}>
+																{#if isGenLoc}<span class="loading loading-xs loading-spinner"></span>{/if}
+																Fast
+															</button>
+															<button class="btn btn-xs btn-outline" title="Add to batch (1 credit)" onclick={() => { if (isInRefBatch('location', loc.id)) { removeFromRefBatch('location', loc.id); } else { addToRefBatch('location', loc.id); } }} disabled={submittingRefBatch}>
+																{isInRefBatch('location', loc.id) ? 'Unqueue' : 'Batch'}
+															</button>
+														</div>
+													</div>
+												</div>
+												<!-- Image history -->
+												{#if locImageHistoryId === loc.id && loc.images && loc.images.length > 1}
+													<div class="mt-2 flex flex-wrap gap-2 rounded-lg bg-base-300 p-2">
+														{#each loc.images as img}
+															<!-- svelte-ignore a11y_click_events_have_key_events -->
+															<!-- svelte-ignore a11y_no_static_element_interactions -->
+															<div class="relative h-16 w-16 cursor-pointer overflow-hidden rounded border-2 {img.isPrimary ? 'border-primary' : 'border-base-content/10'}" title="v{img.version}{img.prompt ? ` — ${img.prompt.substring(0, 80)}` : ''}" onclick={() => openImagePreview(getLocImageHistoryUrl(loc.id, img.imageUrl))}>
+																<img src={getLocImageHistoryUrl(loc.id, img.imageUrl)} alt="v{img.version}" class="h-full w-full object-cover" />
+																{#if img.isPrimary}
+																	<div class="absolute top-0 right-0"><span class="badge badge-xs badge-primary">cur</span></div>
+																{/if}
+															</div>
+														{/each}
+													</div>
+												{/if}
 											</div>
 										</div>
 									{/if}
@@ -912,6 +1240,59 @@
 					{/if}
 				</div>
 			</div>
+
+			<!-- Batch Submit + Status -->
+			{#if refImageBatchQueue.length > 0 || refBatchStatus}
+				<div class="card border border-base-300 bg-base-200">
+					<div class="card-body">
+						{#if refBatchStatus && refBatchJobId}
+							<div class="space-y-3">
+								<div class="flex items-center gap-2">
+									<span class="loading loading-sm loading-spinner"></span>
+									<span class="text-sm">Generating reference images...</span>
+								</div>
+								<progress
+									class="progress w-full progress-primary"
+									value={refBatchStatus.completedItems + refBatchStatus.failedItems}
+									max={refBatchStatus.totalItems}
+								></progress>
+								<p class="text-xs text-base-content/60">
+									{refBatchStatus.completedItems}/{refBatchStatus.totalItems} completed
+									{#if refBatchStatus.failedItems > 0}, {refBatchStatus.failedItems} failed{/if}
+								</p>
+							</div>
+						{:else}
+							<div class="flex items-center justify-between">
+								<div>
+									<h2 class="card-title text-lg">Batch Image Queue</h2>
+									<p class="text-sm text-base-content/50">
+										{refImageBatchQueue.length} item{refImageBatchQueue.length !== 1 ? 's' : ''} queued (1 credit each)
+									</p>
+								</div>
+								<div class="flex gap-2">
+									<button
+										class="btn btn-ghost btn-sm"
+										onclick={() => (refImageBatchQueue = [])}
+										disabled={submittingRefBatch}
+									>
+										Clear
+									</button>
+									<button
+										class="btn btn-sm btn-primary"
+										onclick={submitRefBatch}
+										disabled={submittingRefBatch || refImageBatchQueue.length === 0}
+									>
+										{#if submittingRefBatch}
+											<span class="loading loading-xs loading-spinner"></span>
+										{/if}
+										Submit Batch ({refImageBatchQueue.length})
+									</button>
+								</div>
+							</div>
+						{/if}
+					</div>
+				</div>
+			{/if}
 
 			<!-- Phase 1 → 2 -->
 			{#if phase1Complete}
@@ -986,36 +1367,6 @@
 							</div>
 						</form>
 					{/if}
-				</div>
-			</div>
-
-			<!-- Character Visual Descriptions -->
-			<div class="card border border-base-300 bg-base-200">
-				<div class="card-body">
-					<h2 class="card-title text-lg">Character Visual Descriptions</h2>
-					<p class="text-sm text-base-content/50">
-						These descriptions will be injected into image prompts for consistency.
-					</p>
-					<div class="mt-2 divide-y divide-base-300">
-						{#each data.characters as char}
-							<div class="flex items-start justify-between gap-3 py-2">
-								<div>
-									<span class="text-sm font-medium">{char.name}</span>
-									{#if char.visualDescription}
-										<p class="mt-0.5 text-xs text-base-content/60">{char.visualDescription}</p>
-									{:else}
-										<p class="mt-0.5 text-xs text-warning">No visual description yet</p>
-									{/if}
-								</div>
-								<button
-									class="btn shrink-0 btn-ghost btn-xs"
-									onclick={() => openCharAiModal(char.id, char.name)}
-								>
-									Generate
-								</button>
-							</div>
-						{/each}
-					</div>
 				</div>
 			</div>
 
@@ -1537,6 +1888,54 @@
 				{/if}
 			</button>
 		</div>
+	</div>
+	<form method="dialog" class="modal-backdrop">
+		<button>close</button>
+	</form>
+</dialog>
+
+<!-- Modal D: Edit Image -->
+<dialog bind:this={editImageDialog} class="modal">
+	<div class="modal-box">
+		<h3 class="text-lg font-bold">Edit Image — {editImageEntityName}</h3>
+		<p class="py-2 text-sm text-base-content/60">
+			Describe what you want AI to change in the current image.
+			{#if editImageMode === 'fast'}
+				This will generate immediately (2 credits).
+			{:else}
+				This will be added to the batch queue (1 credit).
+			{/if}
+		</p>
+		<textarea
+			class="textarea-bordered textarea w-full"
+			placeholder="e.g., Make the hair longer, change the outfit to a red dress, add a scar on the left cheek..."
+			bind:value={editImagePrompt}
+			rows="3"
+		></textarea>
+		<div class="modal-action">
+			<button class="btn btn-ghost" onclick={() => editImageDialog?.close()}>Cancel</button>
+			<button
+				class="btn btn-primary"
+				onclick={submitEditImage}
+				disabled={!editImagePrompt.trim()}
+			>
+				{editImageMode === 'fast' ? 'Generate Now' : 'Add to Batch'}
+			</button>
+		</div>
+	</div>
+	<form method="dialog" class="modal-backdrop">
+		<button>close</button>
+	</form>
+</dialog>
+
+<!-- Modal E: Image Preview -->
+<dialog bind:this={previewImageDialog} class="modal">
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<!-- svelte-ignore a11y_no_static_element_interactions -->
+	<div class="modal-box max-w-3xl p-2" onclick={() => previewImageDialog?.close()}>
+		{#if previewImageUrl}
+			<img src={previewImageUrl} alt="Preview" class="w-full rounded" />
+		{/if}
 	</div>
 	<form method="dialog" class="modal-backdrop">
 		<button>close</button>

@@ -27,7 +27,7 @@ export async function uploadImage(buffer: Buffer, key: string, contentType = 'im
 			ContentType: contentType
 		})
 	);
-	return `${publicBase}/${key}`;
+	return key;
 }
 
 export async function getImage(key: string) {

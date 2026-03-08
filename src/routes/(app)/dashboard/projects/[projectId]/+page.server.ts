@@ -1,7 +1,16 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { db } from '$lib/server/db';
-import { story, character, location, chapter, section, generationJob } from '$lib/server/db/schema';
+import {
+	story,
+	character,
+	location,
+	chapter,
+	section,
+	generationJob,
+	characterImage,
+	locationImage
+} from '$lib/server/db/schema';
 import { eq, isNull, and, asc, desc } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 
@@ -18,17 +27,25 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	if (!project) throw error(404, 'Project not found');
 
-	const characters = await db
-		.select()
-		.from(character)
-		.where(and(eq(character.storyId, project.id), isNull(character.deletedAt)))
-		.orderBy(asc(character.sortOrder));
+	const characters = await db.query.character.findMany({
+		where: and(eq(character.storyId, project.id), isNull(character.deletedAt)),
+		orderBy: asc(character.sortOrder),
+		with: {
+			images: {
+				orderBy: desc(characterImage.createdAt)
+			}
+		}
+	});
 
-	const locations = await db
-		.select()
-		.from(location)
-		.where(and(eq(location.storyId, project.id), isNull(location.deletedAt)))
-		.orderBy(asc(location.sortOrder));
+	const locations = await db.query.location.findMany({
+		where: and(eq(location.storyId, project.id), isNull(location.deletedAt)),
+		orderBy: asc(location.sortOrder),
+		with: {
+			images: {
+				orderBy: desc(locationImage.createdAt)
+			}
+		}
+	});
 
 	const chapters = await db.query.chapter.findMany({
 		where: and(eq(chapter.storyId, project.id), isNull(chapter.deletedAt)),

@@ -9,9 +9,18 @@ import cron from 'node-cron';
 import { pollPendingJobs } from '$lib/server/jobs/poll-generations';
 
 if (!building) {
-	cron.schedule('* * * * *', () => {
-		pollPendingJobs().catch((err) => console.error('Poll cron error:', err));
-	});
+	cron.schedule(
+		'* * * * *',
+		() => {
+			pollPendingJobs().catch((err) => console.error('Poll cron error:', err));
+		},
+		{
+			scheduled: true,
+			timezone: 'UTC',
+			recoverMissedExecutions: false
+		}
+	);
+	console.log('Scheduled job polling every minute');
 }
 
 const handleParaglide: Handle = ({ event, resolve }) =>

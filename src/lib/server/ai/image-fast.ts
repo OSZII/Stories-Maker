@@ -164,7 +164,7 @@ async function generateSingleImage(
 	const imageId = crypto.randomUUID();
 	const ext = imageData.mimeType === 'image/jpeg' ? 'jpg' : 'png';
 	const key = `stories/${storyId}/sections/${sec.id}/${imageId}.${ext}`;
-	const imageUrl = await uploadImage(imageData.buffer, key, imageData.mimeType);
+	await uploadImage(imageData.buffer, key, imageData.mimeType);
 
 	// Get current version count
 	const existingImages = await db
@@ -175,7 +175,7 @@ async function generateSingleImage(
 	// Create sectionImage record
 	await db.insert(sectionImage).values({
 		sectionId: sec.id,
-		imageUrl,
+		imageUrl: imageId,
 		version: existingImages.length + 1,
 		isSelected: existingImages.length === 0, // Auto-select first image
 		generationJobId: jobId
