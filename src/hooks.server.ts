@@ -17,49 +17,49 @@ import { pollPendingJobs } from '$lib/server/jobs/poll-generations';
 import { processRefImageQueue } from '$lib/server/jobs/process-ref-image-queue';
 
 // Schedule background cron jobs only at runtime (not during `npm run build`)
-// if (!building) {
-// Every minute: poll Google Batch API for completed image generation operations
-// cron.schedule(
-// 	'* * * * *',
-// 	async () => {
-// 		console.log('[cron] pollPendingJobs — starting');
-// 		try {
-// 			await pollPendingJobs();
-// 			console.log('[cron] pollPendingJobs — done');
-// 		} catch (err) {
-// 			console.error('[cron] pollPendingJobs — error:', err);
-// 		}
-// 	},
-// 	{
-// 		// @ts-ignore
-// 		scheduled: true,
-// 		timezone: 'UTC',
-// 		recoverMissedExecutions: false
-// 	}
-// );
+if (!building) {
+	// Every minute: poll Google Batch API for completed image generation operations
+	cron.schedule(
+		'* * * * *',
+		async () => {
+			console.log('[cron] pollPendingJobs — starting');
+			try {
+				await pollPendingJobs();
+				console.log('[cron] pollPendingJobs — done');
+			} catch (err) {
+				console.error('[cron] pollPendingJobs — error:', err);
+			}
+		},
+		{
+			// @ts-ignore
+			scheduled: true,
+			timezone: 'UTC',
+			recoverMissedExecutions: false
+		}
+	);
 
-// Every 15 minutes: collect queued reference image rows and submit them as a batch to Google
-// cron.schedule(
-// 	'*/15 * * * *',
-// 	async () => {
-// 		console.log('[cron] processRefImageQueue — starting');
-// 		try {
-// 			await processRefImageQueue();
-// 			console.log('[cron] processRefImageQueue — done');
-// 		} catch (err) {
-// 			console.error('[cron] processRefImageQueue — error:', err);
-// 		}
-// 	},
-// 	{
-// 		// @ts-ignore
-// 		scheduled: true,
-// 		timezone: 'UTC',
-// 		recoverMissedExecutions: false
-// 	}
-// );
+	// Every 15 minutes: collect queued reference image rows and submit them as a batch to Google
+	cron.schedule(
+		'*/15 * * * *',
+		async () => {
+			console.log('[cron] processRefImageQueue — starting');
+			try {
+				await processRefImageQueue();
+				console.log('[cron] processRefImageQueue — done');
+			} catch (err) {
+				console.error('[cron] processRefImageQueue — error:', err);
+			}
+		},
+		{
+			// @ts-ignore
+			scheduled: true,
+			timezone: 'UTC',
+			recoverMissedExecutions: false
+		}
+	);
 
-console.log('Scheduled job polling every minute + ref image queue every 15 minutes');
-// }
+	console.log('Scheduled job polling every minute + ref image queue every 15 minutes');
+}
 
 /**
  * Paraglide middleware — detects the visitor's locale from the URL,
@@ -83,9 +83,6 @@ const handleParaglide: Handle = ({ event, resolve }) =>
  * then delegates to Better Auth's SvelteKit handler for auth API routes.
  */
 const handleBetterAuth: Handle = async ({ event, resolve }) => {
-	// await processRefImageQueue();
-	// await processRefImageQueue();
-	await pollPendingJobs();
 	const session = await auth.api.getSession({ headers: event.request.headers });
 
 	if (session) {
