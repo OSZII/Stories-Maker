@@ -1,3 +1,4 @@
+<!-- Root layout — sets favicon and renders hidden locale-switcher links for Paraglide crawlability. -->
 <script lang="ts">
 	import { page } from '$app/state';
 	import { locales, localizeHref } from '$lib/paraglide/runtime';

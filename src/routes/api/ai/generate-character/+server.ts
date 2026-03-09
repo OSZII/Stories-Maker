@@ -1,3 +1,9 @@
+/**
+ * POST /api/ai/generate-character
+ * Generates detailed description, visual description, and image prompt
+ * for a single character using OpenRouter LLM. Costs 1 text-gen credit.
+ * Updates the character row in-place.
+ */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';

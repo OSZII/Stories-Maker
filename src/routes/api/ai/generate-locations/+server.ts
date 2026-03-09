@@ -1,3 +1,9 @@
+/**
+ * POST /api/ai/generate-locations
+ * Generates new story locations using OpenRouter LLM based on the synopsis
+ * and existing characters/locations. Avoids duplicates. Costs 1 text-gen credit.
+ * Inserts new location rows with descriptions, visual descriptions, and image prompts.
+ */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';

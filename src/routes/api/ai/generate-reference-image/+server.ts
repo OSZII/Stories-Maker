@@ -1,3 +1,14 @@
+/**
+ * POST /api/ai/generate-reference-image
+ * Generates a reference image for a single character or location.
+ *
+ * Two modes:
+ *   - "fast": calls Gemini API directly, uploads result to R2, returns immediately (2 credits)
+ *   - "batch": just returns the assembled prompt — caller accumulates and submits via batch endpoint
+ *
+ * Supports editPrompt for re-generating with specific modifications.
+ * Prompt includes instructions to exclude text/speech bubbles from images.
+ */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
@@ -61,14 +72,24 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		entityName = char.name;
 
 		if (editPrompt) {
-			prompt = `Edit the existing character reference image of ${char.name}. Changes requested: ${editPrompt}. Character details: ${char.visualDescription || char.description || char.name}`;
+			const parts = [
+				`Edit the character reference image of ${char.name}.`,
+				`Changes requested: ${editPrompt}.`,
+				`Character details: ${char.visualDescription || char.description || char.name}.`
+			];
+			if (project.artStyle) parts.push(`Art style: ${project.artStyle}.`);
+			parts.push('IMPORTANT: Do NOT include any speech bubbles, text, dialogue, captions, or written words in the image. Show only the character illustration with no text elements whatsoever.');
+			prompt = parts.join('\n');
 		} else {
-			const parts = [`Generate a character reference sheet for: ${char.name}`];
-			if (char.role) parts.push(`Role: ${char.role}`);
-			if (char.visualDescription) parts.push(`Visual appearance: ${char.visualDescription}`);
-			else if (char.description) parts.push(`Description: ${char.description}`);
-			if (project.artStyle) parts.push(`Art style: ${project.artStyle}`);
-			if (project.genre) parts.push(`Genre: ${project.genre}`);
+			const parts = [
+				`Generate a single character reference sheet illustration for: ${char.name}.`,
+				`Role: ${char.role}.`
+			];
+			if (char.visualDescription) parts.push(`Visual appearance: ${char.visualDescription}.`);
+			else if (char.description) parts.push(`Description: ${char.description}.`);
+			if (project.artStyle) parts.push(`Art style: ${project.artStyle}.`);
+			if (project.genre) parts.push(`Genre context: ${project.genre}.`);
+			parts.push('IMPORTANT: Do NOT include any speech bubbles, text, dialogue, captions, or written words in the image. Show only the character illustration with no text elements whatsoever.');
 			prompt = parts.join('\n');
 		}
 	} else {
@@ -79,13 +100,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		entityName = loc.name;
 
 		if (editPrompt) {
-			prompt = `Edit the existing location reference image of ${loc.name}. Changes requested: ${editPrompt}. Location details: ${loc.visualDescription || loc.description || loc.name}`;
+			const parts = [
+				`Edit the location reference image of ${loc.name}.`,
+				`Changes requested: ${editPrompt}.`,
+				`Location details: ${loc.visualDescription || loc.description || loc.name}.`
+			];
+			if (project.artStyle) parts.push(`Art style: ${project.artStyle}.`);
+			parts.push('IMPORTANT: This is a background/environment scene ONLY. Do NOT include any characters, people, figures, speech bubbles, text, dialogue, captions, or written words in the image. Show only the location/scenery with no characters or text elements whatsoever.');
+			prompt = parts.join('\n');
 		} else {
-			const parts = [`Generate a reference image for location: ${loc.name}`];
-			if (loc.visualDescription) parts.push(`Visual description: ${loc.visualDescription}`);
-			else if (loc.description) parts.push(`Description: ${loc.description}`);
-			if (project.artStyle) parts.push(`Art style: ${project.artStyle}`);
-			if (project.genre) parts.push(`Genre: ${project.genre}`);
+			const parts = [
+				`Generate a reference image for the location/scene: ${loc.name}.`
+			];
+			if (loc.visualDescription) parts.push(`Visual description: ${loc.visualDescription}.`);
+			else if (loc.description) parts.push(`Description: ${loc.description}.`);
+			if (project.artStyle) parts.push(`Art style: ${project.artStyle}.`);
+			if (project.genre) parts.push(`Genre context: ${project.genre}.`);
+			parts.push('IMPORTANT: This is a background/environment scene ONLY. Do NOT include any characters, people, figures, speech bubbles, text, dialogue, captions, or written words in the image. Show only the location/scenery with no characters or text elements whatsoever.');
 			prompt = parts.join('\n');
 		}
 	}
@@ -115,6 +146,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	}
 };
 
+/**
+ * Fast-mode reference image generation: calls Gemini API, uploads result to R2,
+ * creates a characterImage/locationImage row (marked primary), logs API usage.
+ * Refunds credits on failure.
+ */
 async function generateReferenceImageFast(
 	userId: string,
 	storyId: string,
@@ -124,14 +160,9 @@ async function generateReferenceImageFast(
 ) {
 	await reserveCredits(userId, CREDITS_FAST, 'image_gen');
 
-	const jobType = entityType === 'character' ? 'character_sheet' : 'location_sheet';
-
 	const [job] = await db
 		.insert(generationJob)
 		.values({
-			userId,
-			storyId,
-			jobType,
 			status: 'processing',
 			totalItems: 1,
 			creditsReserved: CREDITS_FAST
@@ -196,7 +227,7 @@ async function generateReferenceImageFast(
 				.insert(characterImage)
 				.values({
 					characterId: entityId,
-					imageUrl: imageId,
+					imageId: imageId,
 					imageType: 'reference',
 					prompt,
 					version: existing.length + 1,
@@ -222,7 +253,7 @@ async function generateReferenceImageFast(
 				.insert(locationImage)
 				.values({
 					locationId: entityId,
-					imageUrl: imageId,
+					imageId: imageId,
 					imageType: 'reference',
 					prompt,
 					version: existing.length + 1,
@@ -249,7 +280,7 @@ async function generateReferenceImageFast(
 		return json({
 			success: true,
 			imageId: newImageId,
-			imageUrl: imageId,
+			storedImageId: imageId,
 			prompt
 		});
 	} catch (err) {

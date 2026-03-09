@@ -52,6 +52,12 @@ src/
     api/                            # API routes (planned)
 ```
 
+## AI Generation UX Pattern
+
+- **Every AI generation action** (text or image) opens a modal popup where the user can provide optional additional instructions
+- User instructions are injected into the prompt as: `The user provided additional instructions: <user-prompt>...</user-prompt>`
+- This gives users fine-grained control over each generation without editing the underlying prompts directly
+
 ## Key Conventions
 
 - **Svelte 5 runes**: Use `$state`, `$derived`, `$effect` — no legacy stores

@@ -1,3 +1,10 @@
+/**
+ * Fast (synchronous) image generation — calls Gemini API directly per section.
+ *
+ * Costs 2 credits per image (more expensive but results come back immediately).
+ * Processes sections with limited concurrency (3 at a time) in background.
+ * Refunds credits for any failed images.
+ */
 import { db } from '$lib/server/db';
 import { section, sectionImage, generationJob, apiUsageLog } from '$lib/server/db/schema';
 import { eq, inArray } from 'drizzle-orm';
@@ -9,6 +16,10 @@ import { uploadImage } from '$lib/server/bucket';
 const CONCURRENCY = 3;
 const CREDITS_PER_IMAGE = 2;
 
+/**
+ * Start fast image generation: reserves credits, creates a job, then processes
+ * all sections in the background with limited concurrency. Returns immediately.
+ */
 export async function startFastGeneration(
 	userId: string,
 	storyId: string,
@@ -23,9 +34,6 @@ export async function startFastGeneration(
 	const [job] = await db
 		.insert(generationJob)
 		.values({
-			userId,
-			storyId,
-			jobType: 'section_panel',
 			status: 'processing',
 			totalItems: sectionIds.length,
 			creditsReserved: totalCredits
@@ -43,6 +51,7 @@ export async function startFastGeneration(
 	return { jobId: job.id };
 }
 
+/** Background worker: generates images with limited concurrency, updates job progress, refunds on failure. */
 async function processInBackground(
 	jobId: string,
 	userId: string,
@@ -102,6 +111,7 @@ async function processInBackground(
 	}
 }
 
+/** Generate one image via Gemini API, upload to R2, create sectionImage record, log API usage. */
 async function generateSingleImage(
 	jobId: string,
 	storyId: string,
@@ -130,7 +140,14 @@ async function generateSingleImage(
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
 				contents: [
-					{ role: 'user', parts: [{ text: `Generate a manga/manhwa panel image: ${prompt}` }] }
+					{
+						role: 'user',
+						parts: [
+							{
+								text: `Generate a single manga/manhwa panel illustration based on the following detailed scene description. Render it as a clean, professional manga panel with no speech bubbles, no text overlays, and no UI elements. Focus on cinematic composition, expressive characters, and atmospheric depth.\n\n${prompt}`
+							}
+						]
+					}
 				],
 				generationConfig: {
 					responseModalities: ['TEXT', 'IMAGE']
@@ -175,7 +192,7 @@ async function generateSingleImage(
 	// Create sectionImage record
 	await db.insert(sectionImage).values({
 		sectionId: sec.id,
-		imageUrl: imageId,
+		imageId,
 		version: existingImages.length + 1,
 		isSelected: existingImages.length === 0, // Auto-select first image
 		generationJobId: jobId

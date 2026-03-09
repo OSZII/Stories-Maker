@@ -1,3 +1,7 @@
+/**
+ * Cloudflare R2 storage client (S3-compatible).
+ * Provides upload, get, and delete operations for generated images.
+ */
 import {
 	S3Client,
 	PutObjectCommand,
@@ -18,6 +22,7 @@ const r2 = new S3Client({
 const bucket = env.R2_BUCKET_NAME!;
 const publicBase = `https://${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${bucket}`;
 
+/** Upload an image buffer to R2. Returns the storage key. */
 export async function uploadImage(buffer: Buffer, key: string, contentType = 'image/png') {
 	await r2.send(
 		new PutObjectCommand({
@@ -30,6 +35,7 @@ export async function uploadImage(buffer: Buffer, key: string, contentType = 'im
 	return key;
 }
 
+/** Retrieve an image object from R2 by key. */
 export async function getImage(key: string) {
 	const response = await r2.send(
 		new GetObjectCommand({
@@ -40,6 +46,7 @@ export async function getImage(key: string) {
 	return response;
 }
 
+/** Delete an image from R2 by key. */
 export async function deleteImage(key: string) {
 	await r2.send(
 		new DeleteObjectCommand({

@@ -1,3 +1,11 @@
+/**
+ * Application database schema (Drizzle ORM).
+ *
+ * Defines all app-specific tables, their columns, indexes, and Drizzle relations.
+ * Auth tables are auto-generated in auth.schema.ts and re-exported here.
+ *
+ * Convention: core entities use soft deletes via `deleted_at` column.
+ */
 import {
 	pgTable,
 	text,
@@ -16,6 +24,7 @@ export * from './auth.schema';
 
 // ─── User Credits (extends Better Auth user) ────────────────────────────────
 
+/** Tracks each user's credit balances — subscription (monthly, expiring) and purchased (permanent). */
 export const userCredits = pgTable('user_credits', {
 	userId: text('user_id')
 		.primaryKey()
@@ -35,6 +44,7 @@ export const userCreditsRelations = relations(userCredits, ({ one }) => ({
 
 // ─── Credit Ledger ──────────────────────────────────────────────────────────
 
+/** Append-only ledger recording every credit debit/credit with running balances. */
 export const creditLedger = pgTable(
 	'credit_ledger',
 	{
@@ -58,6 +68,7 @@ export const creditLedger = pgTable(
 
 // ─── Style Presets ──────────────────────────────────────────────────────────
 
+/** Reusable art-style prompt prefixes (e.g. "dark manhwa", "soft watercolor shojo"). */
 export const stylePreset = pgTable('style_preset', {
 	id: text('id')
 		.primaryKey()
@@ -73,6 +84,7 @@ export const stylePreset = pgTable('style_preset', {
 
 // ─── Story ──────────────────────────────────────────────────────────────────
 
+/** Top-level entity: a manga/manhwa project. Holds synopsis, AI-expanded narrative, and status. */
 export const story = pgTable(
 	'story',
 	{
@@ -116,6 +128,7 @@ export const storyRelations = relations(story, ({ one, many }) => ({
 
 // ─── Character ──────────────────────────────────────────────────────────────
 
+/** A character belonging to a story, with text descriptions and an AI image prompt. */
 export const character = pgTable(
 	'character',
 	{
@@ -147,6 +160,7 @@ export const characterRelations = relations(character, ({ one, many }) => ({
 	images: many(characterImage)
 }));
 
+/** Generated reference images for a character (multiple versions, one primary). */
 export const characterImage = pgTable('character_image', {
 	id: text('id')
 		.primaryKey()
@@ -154,9 +168,10 @@ export const characterImage = pgTable('character_image', {
 	characterId: text('character_id')
 		.notNull()
 		.references(() => character.id, { onDelete: 'cascade' }),
-	imageUrl: text('image_url').notNull(),
+	imageId: text('image_id'),
 	imageType: text('image_type').notNull().default('reference'), // reference | expression_sheet | pose_sheet
 	prompt: text('prompt'),
+	status: text('status').notNull().default('complete'), // queued | generating | complete | failed
 	version: integer('version').notNull().default(1),
 	isPrimary: boolean('is_primary').notNull().default(false),
 	generationJobId: text('generation_job_id'),
@@ -173,6 +188,7 @@ export const characterImageRelations = relations(characterImage, ({ one }) => ({
 
 // ─── Location ───────────────────────────────────────────────────────────────
 
+/** A story location/scene with text and visual descriptions. */
 export const location = pgTable(
 	'location',
 	{
@@ -203,6 +219,7 @@ export const locationRelations = relations(location, ({ one, many }) => ({
 	images: many(locationImage)
 }));
 
+/** Generated reference images for a location (multiple versions, one primary). */
 export const locationImage = pgTable('location_image', {
 	id: text('id')
 		.primaryKey()
@@ -210,9 +227,10 @@ export const locationImage = pgTable('location_image', {
 	locationId: text('location_id')
 		.notNull()
 		.references(() => location.id, { onDelete: 'cascade' }),
-	imageUrl: text('image_url').notNull(),
+	imageId: text('image_id'),
 	imageType: text('image_type').notNull().default('reference'),
 	prompt: text('prompt'),
+	status: text('status').notNull().default('complete'), // queued | generating | complete | failed
 	version: integer('version').notNull().default(1),
 	isPrimary: boolean('is_primary').notNull().default(false),
 	generationJobId: text('generation_job_id'),
@@ -226,6 +244,7 @@ export const locationImageRelations = relations(locationImage, ({ one }) => ({
 
 // ─── Chapter ────────────────────────────────────────────────────────────────
 
+/** A chapter within a story. Contains a summary (from outline) and optionally a detailed script. */
 export const chapter = pgTable(
 	'chapter',
 	{
@@ -259,6 +278,7 @@ export const chapterRelations = relations(chapter, ({ one, many }) => ({
 
 // ─── Section ────────────────────────────────────────────────────────────────
 
+/** A single manga panel/section within a chapter. Has a narrative, image prompt, and panel layout. */
 export const section = pgTable(
 	'section',
 	{
@@ -273,6 +293,7 @@ export const section = pgTable(
 		imagePrompt: text('image_prompt'),
 		imagePromptFull: text('image_prompt_full'),
 		panelLayout: text('panel_layout').notNull().default('full'), // full | half | third | wide | tall
+		sectionType: text('section_type').notNull().default('action'), // action | dialogue | establishing | transition | reaction | splash | montage
 		locationId: text('location_id').references(() => location.id),
 		status: text('status').notNull().default('draft'), // draft | prompt_ready | generating | complete
 		sortOrder: integer('sort_order').notNull().default(0),
@@ -293,6 +314,7 @@ export const sectionRelations = relations(section, ({ one, many }) => ({
 	images: many(sectionImage)
 }));
 
+/** Many-to-many join: which characters appear in a section, with optional emotion/costume. */
 export const sectionCharacter = pgTable(
 	'section_character',
 	{
@@ -319,6 +341,7 @@ export const sectionCharacterRelations = relations(sectionCharacter, ({ one }) =
 	})
 }));
 
+/** Dialogue lines within a section — speech bubbles, thoughts, narration, SFX. */
 export const sectionDialogue = pgTable(
 	'section_dialogue',
 	{
@@ -342,6 +365,7 @@ export const sectionDialogueRelations = relations(sectionDialogue, ({ one }) => 
 	character: one(character, { fields: [sectionDialogue.characterId], references: [character.id] })
 }));
 
+/** Generated panel images for a section (multiple versions, one selected). */
 export const sectionImage = pgTable('section_image', {
 	id: text('id')
 		.primaryKey()
@@ -349,7 +373,9 @@ export const sectionImage = pgTable('section_image', {
 	sectionId: text('section_id')
 		.notNull()
 		.references(() => section.id, { onDelete: 'cascade' }),
-	imageUrl: text('image_url').notNull(),
+	imageId: text('image_id'),
+	status: text('status').notNull().default('complete'), // queued | generating | complete | failed
+	prompt: text('prompt'),
 	version: integer('version').notNull().default(1),
 	isSelected: boolean('is_selected').notNull().default(false),
 	generationJobId: text('generation_job_id'),
@@ -363,38 +389,29 @@ export const sectionImageRelations = relations(sectionImage, ({ one }) => ({
 
 // ─── Generation & Cost Tracking ─────────────────────────────────────────────
 
-export const generationJob = pgTable(
-	'generation_job',
-	{
-		id: text('id')
-			.primaryKey()
-			.$defaultFn(() => crypto.randomUUID()),
-		userId: text('user_id')
-			.notNull()
-			.references(() => user.id, { onDelete: 'cascade' }),
-		storyId: text('story_id')
-			.notNull()
-			.references(() => story.id, { onDelete: 'cascade' }),
-		jobType: text('job_type').notNull(), // character_sheet | location_sheet | section_panel | text_expansion
-		status: text('status').notNull().default('pending'), // pending | submitted | processing | completed | failed | partial
-		totalItems: integer('total_items').notNull().default(1),
-		completedItems: integer('completed_items').notNull().default(0),
-		failedItems: integer('failed_items').notNull().default(0),
-		creditsReserved: integer('credits_reserved').notNull().default(0),
-		creditsConsumed: integer('credits_consumed').notNull().default(0),
-		actualCostUsd: numeric('actual_cost_usd'),
-		googleOperationIds: jsonb('google_operation_ids'),
-		errorLog: jsonb('error_log'),
-		priority: integer('priority').notNull().default(0),
-		createdAt: timestamp('created_at').defaultNow().notNull(),
-		updatedAt: timestamp('updated_at')
-			.defaultNow()
-			.notNull()
-			.$onUpdate(() => new Date())
-	},
-	(table) => [index('generation_job_userId_idx').on(table.userId)]
-);
+/** Tracks an image generation job (batch or fast). Stores status, progress, credits, and Google operation IDs. */
+export const generationJob = pgTable('generation_job', {
+	id: text('id')
+		.primaryKey()
+		.$defaultFn(() => crypto.randomUUID()),
+	status: text('status').notNull().default('pending'), // pending | submitted | processing | completed | failed | partial
+	totalItems: integer('total_items').notNull().default(1),
+	completedItems: integer('completed_items').notNull().default(0),
+	failedItems: integer('failed_items').notNull().default(0),
+	creditsReserved: integer('credits_reserved').notNull().default(0),
+	creditsConsumed: integer('credits_consumed').notNull().default(0),
+	actualCostUsd: numeric('actual_cost_usd'),
+	googleOperationIds: jsonb('google_operation_ids'),
+	errorLog: jsonb('error_log'),
+	priority: integer('priority').notNull().default(0),
+	createdAt: timestamp('created_at').defaultNow().notNull(),
+	updatedAt: timestamp('updated_at')
+		.defaultNow()
+		.notNull()
+		.$onUpdate(() => new Date())
+});
 
+/** Per-request API usage log — records model, token counts, image count, duration, and cost. */
 export const apiUsageLog = pgTable('api_usage_log', {
 	id: text('id')
 		.primaryKey()

@@ -1,3 +1,4 @@
+<!-- Billing page — shows current plan, credit balances, and a button to open the Polar customer portal. -->
 <script lang="ts">
 	import { authClient } from '$lib/auth-client';
 	import { addToast } from '$lib/stores/toast.svelte';
@@ -5,6 +6,7 @@
 	let { data } = $props();
 	let loading = $state(false);
 
+	/** Open the Polar customer billing portal (manage subscriptions, payment methods, invoices). */
 	async function openCustomerPortal() {
 		loading = true;
 		try {

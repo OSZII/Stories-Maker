@@ -1,3 +1,9 @@
+/**
+ * POST /api/ai/generate-chapter-detail
+ * Generates a full detailed script for a single chapter based on its summary
+ * and the overall story. Includes scene descriptions, dialogue cues, and visual notes.
+ * Uses OpenRouter LLM. Costs 1 text-gen credit. Stores result in chapter.detailedScript.
+ */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
@@ -10,7 +16,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	console.log('[generate-chapter-detail] Starting chapter detail generation');
 	if (!locals.user) throw error(401, 'Not authenticated');
 
-	const { storyId, chapterId } = await request.json();
+	const { storyId, chapterId, userInput } = await request.json();
 	if (!storyId || !chapterId) throw error(400, 'Missing storyId or chapterId');
 
 	const project = await db.query.story.findFirst({
@@ -46,7 +52,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	const systemPrompt = `You are a professional manga/manhwa scriptwriter. Given a story overview and a chapter summary, write the full detailed script for this chapter. Include scene descriptions, character actions, emotions, dialogue cues, and visual notes. Write in clear, descriptive prose that can be broken into manga panels later.`;
 
-	const userPrompt = `Story: ${project.title}
+	let userPrompt = `Story: ${project.title}
 Genre: ${project.genre || 'unspecified'}
 Art Style: ${project.artStyle || 'manga'}
 
@@ -57,6 +63,10 @@ Chapter ${ch.chapterNumber}: ${ch.title}
 Summary: ${ch.summary}
 
 Write the full detailed script for this chapter. Include vivid scene descriptions, character interactions, emotional beats, and visual details suitable for manga adaptation.`;
+
+	if (userInput?.trim()) {
+		userPrompt += `\n\nThe user specifically requested the following: ${userInput}`;
+	}
 
 	const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
 		method: 'POST',

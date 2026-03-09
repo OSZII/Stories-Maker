@@ -1,3 +1,4 @@
+<!-- Dashboard overview — shows subscription plan, monthly credits, purchased credits, and quick action links. -->
 <script lang="ts">
 	let { data } = $props();
 </script>

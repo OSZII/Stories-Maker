@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:better-auth.com)",
+      "Bash(npx svelte-check --tsconfig ./tsconfig.json)",
+      "Bash(npm run check 2>&1 | tail -5)",
+      "Bash(wc -l /workspace/src/routes/\\\\\\(app\\\\\\)/dashboard/projects/\\\\[projectId\\\\]/+page.svelte)",
+      "Bash(npm run check 2>&1 | grep -E \"ERROR.*\\(page\\\\.svelte|generate-reference|image-fast\\)\" | head -10)"
+    ]
+  }
+}

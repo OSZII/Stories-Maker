@@ -1,3 +1,8 @@
+/**
+ * Server-side Better Auth configuration.
+ * Sets up email+password and Google OAuth providers, Drizzle DB adapter,
+ * and the Polar.sh billing plugin (checkout, portal, usage tracking, webhooks).
+ */
 import { betterAuth } from 'better-auth/minimal';
 import { drizzleAdapter } from 'better-auth/adapters/drizzle';
 import { sveltekitCookies } from 'better-auth/svelte-kit';

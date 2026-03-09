@@ -1,3 +1,5 @@
+<!-- App layout — sidebar navigation (Dashboard, Projects, Billing), user avatar + sign out, Toast overlay.
+     Renders children directly (no sidebar) if user is not authenticated. -->
 <script lang="ts">
 	import { page } from '$app/state';
 	import { authClient } from '$lib/auth-client';
@@ -6,9 +8,10 @@
 
 	let { data, children } = $props();
 
+	/** Sign the user out via Better Auth and redirect to signup page. */
 	async function handleSignOut() {
 		await authClient.signOut();
-		goto('/login');
+		goto('/signup');
 	}
 </script>
 

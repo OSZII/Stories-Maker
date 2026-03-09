@@ -1,3 +1,10 @@
+/**
+ * POST /api/ai/generate-cast
+ * Auto-generates characters and locations for a story from its synopsis.
+ * Uses OpenRouter LLM to produce JSON with character descriptions, visual
+ * descriptions, and image prompts. Inserts new rows; avoids duplicating
+ * existing characters/locations. Costs 1 text-gen credit.
+ */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';

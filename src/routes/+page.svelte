@@ -1,9 +1,18 @@
+<!--
+  Landing page — public marketing page with:
+  - Hero section with CTA
+  - "How it works" 4-step pipeline explanation
+  - Feature highlights (AI story expansion, character sheets, bulk generation, etc.)
+  - Pricing section (subscriptions from Polar + credit packs)
+  - Footer with browse link
+-->
 <script lang="ts">
 	import { goto } from '$app/navigation';
 
 	let { data } = $props();
 	let checkoutLoading = $state<string | null>(null);
 
+	/** Format a price from cents to a localized currency string (e.g. $10). */
 	function formatPrice(amountInCents: number, currency: string) {
 		return new Intl.NumberFormat('en-US', {
 			style: 'currency',
@@ -12,9 +21,10 @@
 		}).format(amountInCents / 100);
 	}
 
+	/** Handle subscribe/buy click — redirects unauthenticated users to signup, otherwise creates a Polar checkout. */
 	async function handleSubscribe(productId: string) {
 		if (!data.isAuthenticated) {
-			goto('/login');
+			goto('/signup');
 			return;
 		}
 
@@ -52,8 +62,7 @@
 				{#if data.isAuthenticated}
 					<a href="/dashboard" class="btn btn-sm btn-primary">Dashboard</a>
 				{:else}
-					<a href="/login" class="btn btn-ghost btn-sm">Log in</a>
-					<a href="/register" class="btn btn-sm btn-primary">Get Started</a>
+					<a href="/signup" class="btn btn-sm btn-primary">Get Started</a>
 				{/if}
 			</div>
 		</div>
@@ -89,7 +98,7 @@
 			</p>
 
 			<div class="mt-10 flex flex-col justify-center gap-4 sm:flex-row">
-				<a href="/register" class="btn gap-2 btn-lg btn-primary">
+				<a href="/signup" class="btn gap-2 btn-lg btn-primary">
 					<svg
 						xmlns="http://www.w3.org/2000/svg"
 						class="h-5 w-5"
@@ -424,7 +433,7 @@
 								<div class="mt-6 card-actions">
 									{#if plan.priceAmount === 0}
 										<a
-											href={data.isAuthenticated ? '/dashboard' : '/register'}
+											href={data.isAuthenticated ? '/dashboard' : '/signup'}
 											class="btn w-full btn-sm {isMiddle ? 'btn-primary' : 'btn-outline'}"
 										>
 											Get Started
@@ -502,7 +511,7 @@
 				<p class="mt-4 text-lg text-base-content/60">
 					Join creators who are turning their stories into illustrated manga with the power of AI.
 				</p>
-				<a href="/register" class="btn mt-8 btn-lg btn-primary">Start Creating — It's Free</a>
+				<a href="/signup" class="btn mt-8 btn-lg btn-primary">Start Creating — It's Free</a>
 			</div>
 		</div>
 	</section>

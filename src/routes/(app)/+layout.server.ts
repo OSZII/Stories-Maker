@@ -1,3 +1,7 @@
+/**
+ * App layout server load — provides the authenticated user object to all
+ * child routes. Returns null if not logged in (sidebar hides accordingly).
+ */
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = async ({ locals }) => {

@@ -1,7 +1,18 @@
+/**
+ * POST /api/ai/generate-images
+ * Main entry point for generating manga panel images for a story's sections.
+ *
+ * Supports two modes:
+ *   - "fast": synchronous generation via Gemini API (2 credits/image, immediate results)
+ *   - "batch": async batch generation via Google Batch API (1 credit/image, results via polling)
+ *
+ * Steps: verify ownership → check no active images → assemble full prompts → check credits → start generation.
+ * Can optionally target specific sectionIds or generate all sections with prompts.
+ */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
-import { story, chapter, section, generationJob } from '$lib/server/db/schema';
+import { story, chapter, section, sectionImage } from '$lib/server/db/schema';
 import { eq, and, isNull, isNotNull, inArray } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 import { checkSufficientCredits } from '$lib/server/credits';
@@ -17,11 +28,13 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const {
 		storyId,
 		mode,
-		sectionIds: requestedSectionIds
+		sectionIds: requestedSectionIds,
+		userInstructions
 	} = body as {
 		storyId: string;
 		mode: 'batch' | 'fast';
 		sectionIds?: string[];
+		userInstructions?: Record<string, string>;
 	};
 
 	if (!storyId) throw error(400, 'Missing storyId');
@@ -33,18 +46,21 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	});
 	if (!project) throw error(404, 'Story not found');
 
-	// Check for existing active jobs
-	const activeJobs = await db
-		.select({ id: generationJob.id })
-		.from(generationJob)
+	// Check for active images (queued or generating) in this story's sections
+	const activeImages = await db
+		.select({ id: sectionImage.id })
+		.from(sectionImage)
+		.innerJoin(section, eq(sectionImage.sectionId, section.id))
+		.innerJoin(chapter, eq(section.chapterId, chapter.id))
 		.where(
 			and(
-				eq(generationJob.storyId, storyId),
-				sql`${generationJob.status} IN ('pending', 'submitted', 'processing')`
+				eq(chapter.storyId, storyId),
+				sql`${sectionImage.status} IN ('queued', 'generating')`
 			)
-		);
+		)
+		.limit(1);
 
-	if (activeJobs.length > 0) {
+	if (activeImages.length > 0) {
 		throw error(409, 'An image generation job is already active for this story');
 	}
 
@@ -86,6 +102,27 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
 	// Assemble full prompts
 	await assembleImagePrompts(storyId);
+
+	// Apply per-section user instructions to assembled prompts
+	if (userInstructions && Object.keys(userInstructions).length > 0) {
+		for (const secId of sectionIds) {
+			const feedback = userInstructions[secId];
+			if (feedback?.trim()) {
+				const [sec] = await db
+					.select({ imagePromptFull: section.imagePromptFull })
+					.from(section)
+					.where(eq(section.id, secId));
+				if (sec?.imagePromptFull) {
+					await db
+						.update(section)
+						.set({
+							imagePromptFull: `${sec.imagePromptFull}\n\nThe user provided additional instructions: <user-prompt>${feedback}</user-prompt>`
+						})
+						.where(eq(section.id, secId));
+				}
+			}
+		}
+	}
 
 	// Check credits
 	const creditsPerImage = mode === 'fast' ? 2 : 1;

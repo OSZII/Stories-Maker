@@ -1,3 +1,4 @@
+<!-- Toast notification overlay — renders active toasts in the top-right corner with auto-dismiss. -->
 <script lang="ts">
 	import { getToasts, removeToast } from '$lib/stores/toast.svelte';
 

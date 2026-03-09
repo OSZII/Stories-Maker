@@ -1,3 +1,16 @@
+/**
+ * Project detail page — the main editor for a manga project.
+ *
+ * Load: fetches the story, its characters (with images), locations (with images),
+ *       chapters (with sections and section images), and any active generation job.
+ *
+ * Actions:
+ *   - updateStory: save title, genre, art style, synopsis
+ *   - addCharacter / updateCharacter / deleteCharacter: CRUD for characters
+ *   - addLocation / updateLocation / deleteLocation: CRUD for locations
+ *   - updateDetailedStory: save the AI-expanded narrative
+ *   - updateChapter: save chapter title, summary, and detailed script
+ */
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { db } from '$lib/server/db';
@@ -7,6 +20,7 @@ import {
 	location,
 	chapter,
 	section,
+	sectionImage,
 	generationJob,
 	characterImage,
 	locationImage
@@ -15,7 +29,7 @@ import { eq, isNull, and, asc, desc } from 'drizzle-orm';
 import { sql } from 'drizzle-orm';
 
 export const load: PageServerLoad = async ({ params, locals }) => {
-	if (!locals.user) throw redirect(302, '/login');
+	if (!locals.user) throw redirect(302, '/signup');
 
 	const project = await db.query.story.findFirst({
 		where: and(
@@ -60,20 +74,60 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		}
 	});
 
-	// Load active generation jobs for this story
-	const activeJobs = await db
-		.select()
-		.from(generationJob)
+	// Find active generation job by checking image statuses across all image tables
+	const activeSecImg = await db
+		.select({ generationJobId: sectionImage.generationJobId })
+		.from(sectionImage)
+		.innerJoin(section, eq(sectionImage.sectionId, section.id))
+		.innerJoin(chapter, eq(section.chapterId, chapter.id))
 		.where(
 			and(
-				eq(generationJob.storyId, project.id),
-				sql`${generationJob.status} IN ('pending', 'submitted', 'processing')`
+				eq(chapter.storyId, project.id),
+				sql`${sectionImage.status} IN ('queued', 'generating')`,
+				sql`${sectionImage.generationJobId} IS NOT NULL`
 			)
 		)
-		.orderBy(desc(generationJob.createdAt))
 		.limit(1);
 
-	const activeJob = activeJobs[0] || null;
+	const activeCharImg = await db
+		.select({ generationJobId: characterImage.generationJobId })
+		.from(characterImage)
+		.innerJoin(character, eq(characterImage.characterId, character.id))
+		.where(
+			and(
+				eq(character.storyId, project.id),
+				sql`${characterImage.status} IN ('queued', 'generating')`,
+				sql`${characterImage.generationJobId} IS NOT NULL`
+			)
+		)
+		.limit(1);
+
+	const activeLocImg = await db
+		.select({ generationJobId: locationImage.generationJobId })
+		.from(locationImage)
+		.innerJoin(location, eq(locationImage.locationId, location.id))
+		.where(
+			and(
+				eq(location.storyId, project.id),
+				sql`${locationImage.status} IN ('queued', 'generating')`,
+				sql`${locationImage.generationJobId} IS NOT NULL`
+			)
+		)
+		.limit(1);
+
+	const activeJobId =
+		activeSecImg[0]?.generationJobId ||
+		activeCharImg[0]?.generationJobId ||
+		activeLocImg[0]?.generationJobId;
+
+	let activeJob = null;
+	if (activeJobId) {
+		const [jobRow] = await db
+			.select()
+			.from(generationJob)
+			.where(eq(generationJob.id, activeJobId));
+		activeJob = jobRow || null;
+	}
 
 	return { project, characters, locations, chapters, activeJob };
 };
@@ -235,5 +289,20 @@ export const actions: Actions = {
 			.where(eq(chapter.id, chapterId));
 
 		return { success: true, action: 'updateChapter' };
+	},
+
+	updateSectionPrompt: async ({ request }) => {
+		const formData = await request.formData();
+		const sectionId = formData.get('sectionId')?.toString();
+		const imagePrompt = formData.get('imagePrompt')?.toString();
+
+		if (!sectionId) return fail(400, { message: 'Section ID required' });
+
+		await db
+			.update(section)
+			.set({ imagePrompt: imagePrompt?.trim() || null })
+			.where(eq(section.id, sectionId));
+
+		return { success: true, action: 'updateSectionPrompt' };
 	}
 };

@@ -1,3 +1,4 @@
+<!-- Projects list page — displays all user's manga projects with status badges. "New Project" button triggers a form action. -->
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';

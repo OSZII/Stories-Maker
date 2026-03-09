@@ -1,9 +1,13 @@
+/**
+ * Dashboard page server load — redirects unauthenticated users to signup,
+ * then fetches the user's credit balances for the overview cards.
+ */
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 import { getUserCredits } from '$lib/server/get-user-credits';
 
 export const load: PageServerLoad = async ({ locals }) => {
-	if (!locals.user) throw redirect(302, '/login');
+	if (!locals.user) throw redirect(302, '/signup');
 
 	const credits = await getUserCredits(locals.user.id);
 

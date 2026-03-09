@@ -1,3 +1,18 @@
+<!--
+  Project detail / editor page — the main 4-phase manga creation workflow:
+
+  Phase 1 (Define): Edit title, genre, art style, synopsis. Add/edit/delete characters and locations.
+           AI actions: "Generate Cast" (auto-create characters + locations from synopsis).
+  Phase 2 (Refine): AI-expand synopsis into detailed story. Generate character descriptions.
+           Generate reference images for characters/locations (fast or batch mode).
+  Phase 3 (Script): Generate chapter outline from story. Generate detailed scripts per chapter.
+           Break chapters into panel sections with image prompts and dialogue.
+  Phase 4 (Generate): Bulk-generate manga panel images (fast or batch mode).
+           Poll generation status. View generated images per section.
+
+  Uses SvelteKit form actions for CRUD, fetch() calls for AI generation endpoints,
+  and polling for async job status updates.
+-->
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
@@ -59,57 +74,45 @@
 	let charImageHistoryId = $state<string | null>(null);
 	let locImageHistoryId = $state<string | null>(null);
 
-	// Ref image batch polling
-	let refBatchJobId = $state<string | null>(null);
-	let refBatchStatus = $state<{
-		status: string;
-		totalItems: number;
-		completedItems: number;
-		failedItems: number;
-	} | null>(null);
+	// Chapter generation modal (shared for outline, detail, sections)
+	let chapterGenDialog = $state<HTMLDialogElement | null>(null);
+	let chapterGenFeedback = $state('');
+	let chapterGenAction = $state<'outline' | 'detail' | 'sections' | null>(null);
+	let chapterGenTargetId = $state<string | null>(null);
 
-	$effect(() => {
-		if (!refBatchJobId) return;
-		const interval = setInterval(async () => {
-			const res = await fetch(`/api/ai/generation-status?jobId=${refBatchJobId}`);
-			if (!res.ok) return;
-			const { job } = await res.json();
-			if (!job) return;
-			refBatchStatus = {
-				status: job.status,
-				totalItems: job.totalItems,
-				completedItems: job.completedItems,
-				failedItems: job.failedItems
-			};
-			if (['completed', 'failed', 'partial'].includes(job.status)) {
-				clearInterval(interval);
-				refBatchJobId = null;
-				submittingRefBatch = false;
-				await invalidateAll();
-				addToast('Reference images generated!', 'success');
-			}
-		}, 5000);
-		return () => clearInterval(interval);
-	});
+	// Section image generation modal
+	let sectionImageDialog = $state<HTMLDialogElement | null>(null);
+	let sectionImageMode = $state<'fast' | 'batch'>('fast');
+	let sectionImagePrompt = $state('');
+	let sectionImageTargetId = $state('');
+	let sectionImageTargetLabel = $state('');
 
+	// Section image batch queue
+	let sectionBatchQueue = $state<Array<{ sectionId: string }>>([]);
+	let submittingSectionBatch = $state(false);
+
+	/** Add an entity to the batch queue for reference image generation (if not already in it). */
 	function addToRefBatch(entityType: 'character' | 'location', entityId: string) {
 		if (refImageBatchQueue.some((i) => i.entityType === entityType && i.entityId === entityId))
 			return;
 		refImageBatchQueue = [...refImageBatchQueue, { entityType, entityId }];
 	}
 
+	/** Remove an entity from the batch queue. */
 	function removeFromRefBatch(entityType: 'character' | 'location', entityId: string) {
 		refImageBatchQueue = refImageBatchQueue.filter(
 			(i) => !(i.entityType === entityType && i.entityId === entityId)
 		);
 	}
 
+	/** Check if an entity is already in the batch queue. */
 	function isInRefBatch(entityType: 'character' | 'location', entityId: string) {
 		return refImageBatchQueue.some(
 			(i) => i.entityType === entityType && i.entityId === entityId
 		);
 	}
 
+	/** Call the fast reference image generation API for a single entity. Shows toast on completion/error. */
 	async function generateRefImageFast(
 		entityType: 'character' | 'location',
 		entityId: string,
@@ -148,6 +151,7 @@
 		}
 	}
 
+	/** Submit all queued reference images for batch processing. Clears the queue on success. */
 	async function submitRefBatch() {
 		if (refImageBatchQueue.length === 0) return;
 		submittingRefBatch = true;
@@ -167,25 +171,22 @@
 						href: '/dashboard/billing'
 					});
 				} else {
-					addToast('Failed to start batch generation', 'error');
+					addToast('Failed to queue batch generation', 'error');
 				}
-				submittingRefBatch = false;
 				return;
 			}
 			const result = await res.json();
-			refBatchJobId = result.jobId;
-			refBatchStatus = {
-				status: 'processing',
-				totalItems: result.totalImages,
-				completedItems: 0,
-				failedItems: 0
-			};
 			refImageBatchQueue = [];
+			await invalidateAll();
+			addToast(`${result.queued} image(s) queued for batch processing`, 'success');
 		} catch {
+			addToast('Failed to queue batch generation', 'error');
+		} finally {
 			submittingRefBatch = false;
 		}
 	}
 
+	/** Open the "edit image" dialog to provide modification instructions for regeneration. */
 	function openEditImageModal(
 		entityType: 'character' | 'location',
 		entityId: string,
@@ -200,6 +201,7 @@
 		editImageDialog?.showModal();
 	}
 
+	/** Submit the edit image request — either fast (immediate) or add to batch queue. */
 	async function submitEditImage() {
 		editImageDialog?.close();
 		if (editImageMode === 'fast') {
@@ -219,10 +221,19 @@
 		}
 	}
 
+	/** Get the primary (or first completed) image from an entity's image array. */
 	function getPrimaryImage(
-		images: Array<{ imageUrl: string; isPrimary: boolean; version: number; prompt: string | null; createdAt: Date }>
+		images: Array<{ imageId: string | null; isPrimary: boolean; version: number; prompt: string | null; status: string; createdAt: Date }>
 	) {
-		return images.find((i) => i.isPrimary) || images[0] || null;
+		const complete = images.filter((i) => i.status === 'complete' && i.imageId);
+		return complete.find((i) => i.isPrimary) || complete[0] || null;
+	}
+
+	/** Check if any image in the array is still queued or being generated. */
+	function hasQueuedOrGenerating(
+		images: Array<{ status: string }>
+	) {
+		return images.some((i) => i.status === 'queued' || i.status === 'generating');
 	}
 
 	// Image generation state
@@ -280,14 +291,20 @@
 		return () => clearInterval(interval);
 	});
 
-	async function startImageGeneration(mode: 'batch' | 'fast') {
+	/** Start bulk panel image generation for all sections — kicks off the job and starts polling. */
+	async function startImageGeneration(mode: 'batch' | 'fast', sectionIds?: string[], userInstructions?: Record<string, string>) {
 		generatingImages = true;
 		generationMode = mode;
 		try {
 			const res = await fetch('/api/ai/generate-images', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ storyId: data.project.id, mode })
+				body: JSON.stringify({
+					storyId: data.project.id,
+					mode,
+					sectionIds: sectionIds || undefined,
+					userInstructions: userInstructions || undefined
+				})
 			});
 			if (!res.ok) {
 				const err = await res.json();
@@ -358,6 +375,7 @@
 		'Watercolor'
 	];
 
+	/** Call the AI story expansion API. On success, reloads data and moves to Phase 2. */
 	async function expandStory(userInput?: string) {
 		expandingStory = true;
 		try {
@@ -412,13 +430,14 @@
 		}
 	}
 
-	async function generateChapterOutline() {
+	/** Generate chapter outline (titles + summaries) from the detailed story. */
+	async function generateChapterOutline(userInput?: string) {
 		generatingOutline = true;
 		try {
 			const res = await fetch('/api/ai/generate-chapter-outline', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ storyId: data.project.id })
+				body: JSON.stringify({ storyId: data.project.id, userInput: userInput || undefined })
 			});
 			if (!res.ok) {
 				if (res.status === 402) {
@@ -437,13 +456,14 @@
 		}
 	}
 
-	async function generateChapterDetail(chapterId: string) {
+	/** Generate a detailed script for a single chapter. */
+	async function generateChapterDetail(chapterId: string, userInput?: string) {
 		generatingChapterDetail = { ...generatingChapterDetail, [chapterId]: true };
 		try {
 			const res = await fetch('/api/ai/generate-chapter-detail', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ storyId: data.project.id, chapterId })
+				body: JSON.stringify({ storyId: data.project.id, chapterId, userInput: userInput || undefined })
 			});
 			if (!res.ok) {
 				if (res.status === 402) {
@@ -463,13 +483,14 @@
 		}
 	}
 
-	async function generateChapterSections(chapterId: string) {
+	/** Break a chapter's script into panel-by-panel sections with image prompts. */
+	async function generateChapterSections(chapterId: string, userInput?: string) {
 		generatingChapterSections = { ...generatingChapterSections, [chapterId]: true };
 		try {
 			const res = await fetch('/api/ai/generate-chapter-sections', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ storyId: data.project.id, chapterId })
+				body: JSON.stringify({ storyId: data.project.id, chapterId, userInput: userInput || undefined })
 			});
 			if (!res.ok) {
 				if (res.status === 402) {
@@ -489,6 +510,7 @@
 		}
 	}
 
+	/** Generate detailed scripts for all chapters that don't have one yet (sequential). */
 	async function generateAllChapterDetails() {
 		generatingAllDetails = true;
 		try {
@@ -502,6 +524,7 @@
 		}
 	}
 
+	/** Generate panel sections for all chapters that have scripts but no sections yet (sequential). */
 	async function generateAllChapterSections() {
 		generatingAllSections = true;
 		try {
@@ -515,6 +538,7 @@
 		}
 	}
 
+	/** Call the AI cast generation API to auto-create characters + locations from the synopsis. */
 	async function generateCast(userInput?: string) {
 		generatingCast = true;
 		try {
@@ -540,6 +564,7 @@
 		}
 	}
 
+	/** Generate AI descriptions for all selected characters (batch text generation). */
 	async function generateSelectedCharacters() {
 		generatingCharDescs = true;
 		try {
@@ -570,6 +595,7 @@
 		}
 	}
 
+	/** Call the AI location generation API to create new locations for the story. */
 	async function generateLocationsAi(userInput?: string) {
 		generatingLocations = true;
 		try {
@@ -595,6 +621,7 @@
 		}
 	}
 
+	/** Open the character AI generation modal with optional custom instructions. */
 	function openCharAiModal(charId: string, charName: string) {
 		activeCharModalId = charId;
 		activeCharModalName = charName;
@@ -602,6 +629,7 @@
 		charAiDialog?.showModal();
 	}
 
+	/** Save the character AI modal input and close dialog. */
 	function saveCharAiModal() {
 		if (activeCharModalId) {
 			characterAiInputs = { ...characterAiInputs, [activeCharModalId]: charModalInput };
@@ -643,30 +671,118 @@
 		generateLocationsAi(locationsModalInput);
 	}
 
+	/** Open the chapter generation modal for a given action type. */
+	function openChapterGenModal(action: 'outline' | 'detail' | 'sections', chapterId?: string) {
+		chapterGenAction = action;
+		chapterGenTargetId = chapterId ?? null;
+		chapterGenFeedback = '';
+		chapterGenDialog?.showModal();
+	}
+
+	/** Submit the chapter generation modal — dispatches to the correct generation function. */
+	function submitChapterGenModal() {
+		chapterGenDialog?.close();
+		const feedback = chapterGenFeedback;
+		if (chapterGenAction === 'outline') {
+			generateChapterOutline(feedback);
+		} else if (chapterGenAction === 'detail' && chapterGenTargetId) {
+			generateChapterDetail(chapterGenTargetId, feedback);
+		} else if (chapterGenAction === 'sections' && chapterGenTargetId) {
+			generateChapterSections(chapterGenTargetId, feedback);
+		}
+	}
+
+	/** Get title text for the chapter generation modal based on current action. */
+	function chapterGenModalTitle(): string {
+		switch (chapterGenAction) {
+			case 'outline': return 'Generate Chapter Outline';
+			case 'detail': return 'Generate Chapter Detail';
+			case 'sections': return 'Generate Sections / Panels';
+			default: return 'Generate';
+		}
+	}
+
+	/** Open the section image generation modal — pre-fills with the section's current prompt. */
+	function openSectionImageModal(sectionId: string, label: string, mode: 'fast' | 'batch', existingPrompt: string) {
+		sectionImageTargetId = sectionId;
+		sectionImageTargetLabel = label;
+		sectionImageMode = mode;
+		sectionImagePrompt = existingPrompt;
+		sectionImageDialog?.showModal();
+	}
+
+	/** Save a section's image prompt to the DB via form action. */
+	async function saveSectionPrompt(sectionId: string, imagePrompt: string) {
+		const formData = new FormData();
+		formData.set('sectionId', sectionId);
+		formData.set('imagePrompt', imagePrompt);
+		await fetch('?/updateSectionPrompt', { method: 'POST', body: formData });
+	}
+
+	/** Submit the section image modal — saves the (possibly edited) prompt, then generates/batches. */
+	async function submitSectionImageModal() {
+		sectionImageDialog?.close();
+
+		// Save the edited prompt to DB
+		await saveSectionPrompt(sectionImageTargetId, sectionImagePrompt);
+		await invalidateAll();
+
+		if (sectionImageMode === 'fast') {
+			startImageGeneration('fast', [sectionImageTargetId]);
+		} else {
+			if (!sectionBatchQueue.some((q) => q.sectionId === sectionImageTargetId)) {
+				sectionBatchQueue = [...sectionBatchQueue, { sectionId: sectionImageTargetId }];
+			}
+		}
+	}
+
+	/** Check if a section is already in the batch queue. */
+	function isInSectionBatch(sectionId: string) {
+		return sectionBatchQueue.some((q) => q.sectionId === sectionId);
+	}
+
+	/** Submit all queued section images as a batch. */
+	async function submitSectionBatch() {
+		if (sectionBatchQueue.length === 0) return;
+		submittingSectionBatch = true;
+		try {
+			const sectionIds = sectionBatchQueue.map((q) => q.sectionId);
+			await startImageGeneration('batch', sectionIds);
+			sectionBatchQueue = [];
+		} finally {
+			submittingSectionBatch = false;
+		}
+	}
+
 	const R2_BASE = 'https://stories-maker-bucket.ostojicstefan.com';
 
-	function getCharacterImageUrl(character: { id: string; images: Array<{ imageUrl: string; isPrimary: boolean }> }) {
-		const primaryImageIndex = character.images.findIndex((img) => img.isPrimary);
-		return `${R2_BASE}/stories/${data.project.id}/characters/${character.id}/${character.images[primaryImageIndex].imageUrl}.png`;
+	/** Build the R2 public URL for a character's primary reference image. */
+	function getCharacterImageUrl(character: { id: string; images: Array<{ imageId: string | null; isPrimary: boolean; status: string }> }) {
+		const img = character.images.find((i) => i.isPrimary && i.imageId && i.status === 'complete') || character.images.find((i) => i.imageId && i.status === 'complete');
+		if (!img?.imageId) return '';
+		return `${R2_BASE}/stories/${data.project.id}/characters/${character.id}/${img.imageId}.png`;
 	}
 
-	function getLocationImageUrl(loc: { id: string; images: Array<{ imageUrl: string; isPrimary: boolean }> }) {
-		const primaryImageIndex = loc.images.findIndex((img) => img.isPrimary);
-		return `${R2_BASE}/stories/${data.project.id}/locations/${loc.id}/${loc.images[primaryImageIndex].imageUrl}.png`;
+	/** Build the R2 public URL for a location's primary reference image. */
+	function getLocationImageUrl(loc: { id: string; images: Array<{ imageId: string | null; isPrimary: boolean; status: string }> }) {
+		const img = loc.images.find((i) => i.isPrimary && i.imageId && i.status === 'complete') || loc.images.find((i) => i.imageId && i.status === 'complete');
+		if (!img?.imageId) return '';
+		return `${R2_BASE}/stories/${data.project.id}/locations/${loc.id}/${img.imageId}.png`;
 	}
 
-	function getCharImageHistoryUrl(charId: string, imageUrl: string) {
-		return `${R2_BASE}/stories/${data.project.id}/characters/${charId}/${imageUrl}.png`;
+	function getCharImageHistoryUrl(charId: string, imageId: string) {
+		return `${R2_BASE}/stories/${data.project.id}/characters/${charId}/${imageId}.png`;
 	}
 
-	function getLocImageHistoryUrl(locId: string, imageUrl: string) {
-		return `${R2_BASE}/stories/${data.project.id}/locations/${locId}/${imageUrl}.png`;
+	function getLocImageHistoryUrl(locId: string, imageId: string) {
+		return `${R2_BASE}/stories/${data.project.id}/locations/${locId}/${imageId}.png`;
 	}
 
 	// Image preview modal
 	let previewImageUrl = $state<string | null>(null);
 	let previewImageDialog = $state<HTMLDialogElement | null>(null);
 
+	/** Open the full-size image preview modal for a given URL. */
 	function openImagePreview(url: string) {
 		previewImageUrl = null;
 		// Wait a tick so the old image is cleared before showing the modal
@@ -883,6 +999,7 @@
 							{#each data.characters as char}
 								{@const primaryImg = char.images ? getPrimaryImage(char.images) : null}
 								{@const isGenChar = generatingRefImage[`character-${char.id}`]}
+								{@const hasQueuedChar = char.images ? hasQueuedOrGenerating(char.images) : false}
 								<div class="py-3">
 									{#if editingCharacterId === char.id}
 										<form
@@ -941,7 +1058,7 @@
 														<img src={getCharacterImageUrl(char)} alt={char.name} class="h-full w-full object-cover" />
 													</div>
 													<div class="flex gap-0.5">
-														<button class="btn btn-xs btn-ghost" title="Edit image (fast, 2 credits)" onclick={() => openEditImageModal('character', char.id, char.name, 'fast')} disabled={isGenChar}>Edit</button>
+														<button class="btn btn-xs btn-ghost" title="Edit image (fast, 2 credits)" onclick={() => openEditImageModal('character', char.id, char.name, 'fast')} disabled={true}>Edit</button>
 														<button class="btn btn-xs btn-ghost" title="Edit image (batch, 1 credit)" onclick={() => openEditImageModal('character', char.id, char.name, 'batch')} disabled={isGenChar}>Batch</button>
 													</div>
 													{#if char.images && char.images.length > 1}
@@ -952,6 +1069,11 @@
 												{:else if isGenChar}
 													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300">
 														<span class="loading loading-sm loading-spinner"></span>
+													</div>
+												{:else if hasQueuedChar}
+													<div class="flex h-24 w-24 flex-col items-center justify-center rounded-lg border-2 border-dashed border-info/50 text-info/60">
+														<span class="loading loading-xs loading-dots"></span>
+														<span class="mt-1 text-[10px]">Queued</span>
 													</div>
 												{:else}
 													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300 text-base-content/30">
@@ -991,7 +1113,7 @@
 															</form>
 														</div>
 														<div class="flex gap-1">
-															<button class="btn btn-xs btn-secondary" title="Generate image (2 credits)" onclick={() => generateRefImageFast('character', char.id)} disabled={isGenChar || submittingRefBatch}>
+															<button class="btn btn-xs btn-secondary" title="Generate image (2 credits)" onclick={() => generateRefImageFast('character', char.id)} disabled={true}>
 																{#if isGenChar}<span class="loading loading-xs loading-spinner"></span>{/if}
 																Fast
 															</button>
@@ -1005,14 +1127,25 @@
 												{#if charImageHistoryId === char.id && char.images && char.images.length > 1}
 													<div class="mt-2 flex flex-wrap gap-2 rounded-lg bg-base-300 p-2">
 														{#each char.images as img}
-															<!-- svelte-ignore a11y_click_events_have_key_events -->
-															<!-- svelte-ignore a11y_no_static_element_interactions -->
-															<div class="relative h-16 w-16 cursor-pointer overflow-hidden rounded border-2 {img.isPrimary ? 'border-primary' : 'border-base-content/10'}" title="v{img.version}{img.prompt ? ` — ${img.prompt.substring(0, 80)}` : ''}" onclick={() => openImagePreview(getCharImageHistoryUrl(char.id, img.imageUrl))}>
-																<img src={getCharImageHistoryUrl(char.id, img.imageUrl)} alt="v{img.version}" class="h-full w-full object-cover" />
-																{#if img.isPrimary}
-																	<div class="absolute top-0 right-0"><span class="badge badge-xs badge-primary">cur</span></div>
-																{/if}
-															</div>
+															{#if img.imageId && img.status === 'complete'}
+																<!-- svelte-ignore a11y_click_events_have_key_events -->
+																<!-- svelte-ignore a11y_no_static_element_interactions -->
+																<div class="relative h-16 w-16 cursor-pointer overflow-hidden rounded border-2 {img.isPrimary ? 'border-primary' : 'border-base-content/10'}" title="v{img.version}{img.prompt ? ` — ${img.prompt.substring(0, 80)}` : ''}" onclick={() => openImagePreview(getCharImageHistoryUrl(char.id, img.imageId!))}>
+																	<img src={getCharImageHistoryUrl(char.id, img.imageId!)} alt="v{img.version}" class="h-full w-full object-cover" />
+																	{#if img.isPrimary}
+																		<div class="absolute top-0 right-0"><span class="badge badge-xs badge-primary">cur</span></div>
+																	{/if}
+																</div>
+															{:else if img.status === 'queued' || img.status === 'generating'}
+																<div class="flex h-16 w-16 flex-col items-center justify-center rounded border-2 border-dashed border-info/30 text-info/50">
+																	<span class="loading loading-xs loading-dots"></span>
+																	<span class="text-[8px]">{img.status}</span>
+																</div>
+															{:else if img.status === 'failed'}
+																<div class="flex h-16 w-16 items-center justify-center rounded border-2 border-dashed border-error/30 text-error/50 text-[8px]">
+																	Failed
+																</div>
+															{/if}
 														{/each}
 													</div>
 												{/if}
@@ -1111,6 +1244,7 @@
 							{#each data.locations as loc}
 								{@const primaryLocImg = loc.images ? getPrimaryImage(loc.images) : null}
 								{@const isGenLoc = generatingRefImage[`location-${loc.id}`]}
+								{@const hasQueuedLoc = loc.images ? hasQueuedOrGenerating(loc.images) : false}
 								<div class="py-3">
 									{#if editingLocationId === loc.id}
 										<form
@@ -1161,7 +1295,7 @@
 														<img src={getLocationImageUrl(loc)} alt={loc.name} class="h-full w-full object-cover" />
 													</div>
 													<div class="flex gap-0.5">
-														<button class="btn btn-xs btn-ghost" title="Edit image (fast, 2 credits)" onclick={() => openEditImageModal('location', loc.id, loc.name, 'fast')} disabled={isGenLoc}>Edit</button>
+														<button class="btn btn-xs btn-ghost" title="Edit image (fast, 2 credits)" onclick={() => openEditImageModal('location', loc.id, loc.name, 'fast')} disabled={true}>Edit</button>
 														<button class="btn btn-xs btn-ghost" title="Edit image (batch, 1 credit)" onclick={() => openEditImageModal('location', loc.id, loc.name, 'batch')} disabled={isGenLoc}>Batch</button>
 													</div>
 													{#if loc.images && loc.images.length > 1}
@@ -1172,6 +1306,11 @@
 												{:else if isGenLoc}
 													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300">
 														<span class="loading loading-sm loading-spinner"></span>
+													</div>
+												{:else if hasQueuedLoc}
+													<div class="flex h-24 w-24 flex-col items-center justify-center rounded-lg border-2 border-dashed border-info/50 text-info/60">
+														<span class="loading loading-xs loading-dots"></span>
+														<span class="mt-1 text-[10px]">Queued</span>
 													</div>
 												{:else}
 													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300 text-base-content/30">
@@ -1202,7 +1341,7 @@
 															</form>
 														</div>
 														<div class="flex gap-1">
-															<button class="btn btn-xs btn-secondary" title="Generate image (2 credits)" onclick={() => generateRefImageFast('location', loc.id)} disabled={isGenLoc || submittingRefBatch}>
+															<button class="btn btn-xs btn-secondary" title="Generate image (2 credits)" onclick={() => generateRefImageFast('location', loc.id)} disabled={true}>
 																{#if isGenLoc}<span class="loading loading-xs loading-spinner"></span>{/if}
 																Fast
 															</button>
@@ -1216,14 +1355,25 @@
 												{#if locImageHistoryId === loc.id && loc.images && loc.images.length > 1}
 													<div class="mt-2 flex flex-wrap gap-2 rounded-lg bg-base-300 p-2">
 														{#each loc.images as img}
-															<!-- svelte-ignore a11y_click_events_have_key_events -->
-															<!-- svelte-ignore a11y_no_static_element_interactions -->
-															<div class="relative h-16 w-16 cursor-pointer overflow-hidden rounded border-2 {img.isPrimary ? 'border-primary' : 'border-base-content/10'}" title="v{img.version}{img.prompt ? ` — ${img.prompt.substring(0, 80)}` : ''}" onclick={() => openImagePreview(getLocImageHistoryUrl(loc.id, img.imageUrl))}>
-																<img src={getLocImageHistoryUrl(loc.id, img.imageUrl)} alt="v{img.version}" class="h-full w-full object-cover" />
-																{#if img.isPrimary}
-																	<div class="absolute top-0 right-0"><span class="badge badge-xs badge-primary">cur</span></div>
-																{/if}
-															</div>
+															{#if img.imageId && img.status === 'complete'}
+																<!-- svelte-ignore a11y_click_events_have_key_events -->
+																<!-- svelte-ignore a11y_no_static_element_interactions -->
+																<div class="relative h-16 w-16 cursor-pointer overflow-hidden rounded border-2 {img.isPrimary ? 'border-primary' : 'border-base-content/10'}" title="v{img.version}{img.prompt ? ` — ${img.prompt.substring(0, 80)}` : ''}" onclick={() => openImagePreview(getLocImageHistoryUrl(loc.id, img.imageId!))}>
+																	<img src={getLocImageHistoryUrl(loc.id, img.imageId!)} alt="v{img.version}" class="h-full w-full object-cover" />
+																	{#if img.isPrimary}
+																		<div class="absolute top-0 right-0"><span class="badge badge-xs badge-primary">cur</span></div>
+																	{/if}
+																</div>
+															{:else if img.status === 'queued' || img.status === 'generating'}
+																<div class="flex h-16 w-16 flex-col items-center justify-center rounded border-2 border-dashed border-info/30 text-info/50">
+																	<span class="loading loading-xs loading-dots"></span>
+																	<span class="text-[8px]">{img.status}</span>
+																</div>
+															{:else if img.status === 'failed'}
+																<div class="flex h-16 w-16 items-center justify-center rounded border-2 border-dashed border-error/30 text-error/50 text-[8px]">
+																	Failed
+																</div>
+															{/if}
 														{/each}
 													</div>
 												{/if}
@@ -1242,54 +1392,36 @@
 			</div>
 
 			<!-- Batch Submit + Status -->
-			{#if refImageBatchQueue.length > 0 || refBatchStatus}
+			{#if refImageBatchQueue.length > 0}
 				<div class="card border border-base-300 bg-base-200">
 					<div class="card-body">
-						{#if refBatchStatus && refBatchJobId}
-							<div class="space-y-3">
-								<div class="flex items-center gap-2">
-									<span class="loading loading-sm loading-spinner"></span>
-									<span class="text-sm">Generating reference images...</span>
-								</div>
-								<progress
-									class="progress w-full progress-primary"
-									value={refBatchStatus.completedItems + refBatchStatus.failedItems}
-									max={refBatchStatus.totalItems}
-								></progress>
-								<p class="text-xs text-base-content/60">
-									{refBatchStatus.completedItems}/{refBatchStatus.totalItems} completed
-									{#if refBatchStatus.failedItems > 0}, {refBatchStatus.failedItems} failed{/if}
+						<div class="flex items-center justify-between">
+							<div>
+								<h2 class="card-title text-lg">Batch Image Queue</h2>
+								<p class="text-sm text-base-content/50">
+									{refImageBatchQueue.length} item{refImageBatchQueue.length !== 1 ? 's' : ''} queued (1 credit each). Images will be processed within 15 minutes.
 								</p>
 							</div>
-						{:else}
-							<div class="flex items-center justify-between">
-								<div>
-									<h2 class="card-title text-lg">Batch Image Queue</h2>
-									<p class="text-sm text-base-content/50">
-										{refImageBatchQueue.length} item{refImageBatchQueue.length !== 1 ? 's' : ''} queued (1 credit each)
-									</p>
-								</div>
-								<div class="flex gap-2">
-									<button
-										class="btn btn-ghost btn-sm"
-										onclick={() => (refImageBatchQueue = [])}
-										disabled={submittingRefBatch}
-									>
-										Clear
-									</button>
-									<button
-										class="btn btn-sm btn-primary"
-										onclick={submitRefBatch}
-										disabled={submittingRefBatch || refImageBatchQueue.length === 0}
-									>
-										{#if submittingRefBatch}
-											<span class="loading loading-xs loading-spinner"></span>
-										{/if}
-										Submit Batch ({refImageBatchQueue.length})
-									</button>
-								</div>
+							<div class="flex gap-2">
+								<button
+									class="btn btn-ghost btn-sm"
+									onclick={() => (refImageBatchQueue = [])}
+									disabled={submittingRefBatch}
+								>
+									Clear
+								</button>
+								<button
+									class="btn btn-sm btn-primary"
+									onclick={submitRefBatch}
+									disabled={submittingRefBatch || refImageBatchQueue.length === 0}
+								>
+									{#if submittingRefBatch}
+										<span class="loading loading-xs loading-spinner"></span>
+									{/if}
+									Submit Batch ({refImageBatchQueue.length})
+								</button>
 							</div>
-						{/if}
+						</div>
 					</div>
 				</div>
 			{/if}
@@ -1379,7 +1511,7 @@
 							{#if hasChapters}
 								<button
 									class="btn gap-1 btn-outline btn-sm"
-									onclick={generateChapterOutline}
+									onclick={() => openChapterGenModal('outline')}
 									disabled={generatingOutline}
 								>
 									{#if generatingOutline}
@@ -1395,7 +1527,7 @@
 							</p>
 							<button
 								class="btn mt-2 gap-2 btn-sm btn-primary"
-								onclick={generateChapterOutline}
+								onclick={() => openChapterGenModal('outline')}
 								disabled={generatingOutline}
 							>
 								{#if generatingOutline}
@@ -1477,7 +1609,7 @@
 										</div>
 										<button
 											class="btn gap-1 btn-sm {ch.detailedScript ? 'btn-ghost' : 'btn-primary'}"
-											onclick={() => generateChapterDetail(ch.id)}
+											onclick={() => openChapterGenModal('detail', ch.id)}
 											disabled={generatingChapterDetail[ch.id] || generatingAllDetails}
 										>
 											{#if generatingChapterDetail[ch.id]}
@@ -1540,7 +1672,7 @@
 										</div>
 										<button
 											class="btn gap-1 btn-sm {ch.sections && ch.sections.length > 0 ? 'btn-ghost' : 'btn-primary'}"
-											onclick={() => generateChapterSections(ch.id)}
+											onclick={() => openChapterGenModal('sections', ch.id)}
 											disabled={generatingChapterSections[ch.id] || generatingAllSections}
 										>
 											{#if generatingChapterSections[ch.id]}
@@ -1625,12 +1757,47 @@
 								<button
 									class="btn btn-sm btn-secondary"
 									onclick={() => startImageGeneration('fast')}
-									disabled={generatingImages}
+									disabled={true}
 								>
 									Fast (2 credits/image)
 								</button>
 							</div>
 						{/if}
+					</div>
+				</div>
+			{/if}
+
+			<!-- Batch Queue Card -->
+			{#if sectionBatchQueue.length > 0}
+				<div class="card border border-warning bg-base-200">
+					<div class="card-body py-4">
+						<div class="flex items-center justify-between">
+							<div>
+								<h3 class="text-sm font-bold">Batch Queue</h3>
+								<p class="text-xs text-base-content/60">
+									{sectionBatchQueue.length} section(s) queued — {sectionBatchQueue.length} credit(s)
+								</p>
+							</div>
+							<div class="flex gap-2">
+								<button
+									class="btn btn-ghost btn-sm"
+									onclick={() => (sectionBatchQueue = [])}
+									disabled={submittingSectionBatch}
+								>
+									Clear
+								</button>
+								<button
+									class="btn btn-sm btn-primary"
+									onclick={submitSectionBatch}
+									disabled={submittingSectionBatch || generatingImages}
+								>
+									{#if submittingSectionBatch}
+										<span class="loading loading-xs loading-spinner"></span>
+									{/if}
+									Start Batch ({sectionBatchQueue.length})
+								</button>
+							</div>
+						</div>
 					</div>
 				</div>
 			{/if}
@@ -1696,15 +1863,34 @@
 							<!-- Sections -->
 							{#if ch.sections && ch.sections.length > 0}
 								<div class="mt-4">
-									<h3 class="mb-2 text-sm font-medium">
-										Sections/Panels ({ch.sections.length})
-									</h3>
+									<div class="mb-2 flex items-center justify-between">
+										<h3 class="text-sm font-medium">
+											Sections/Panels ({ch.sections.length})
+										</h3>
+										<div class="flex gap-1">
+											<button
+												class="btn btn-xs btn-primary"
+												onclick={() => startImageGeneration('fast', ch.sections.filter((s: { imagePrompt?: string | null }) => s.imagePrompt).map((s: { id: string }) => s.id))}
+												disabled={true}
+											>
+												Generate All
+											</button>
+											<button
+												class="btn btn-xs btn-outline"
+												onclick={() => startImageGeneration('batch', ch.sections.filter((s: { imagePrompt?: string | null }) => s.imagePrompt).map((s: { id: string }) => s.id))}
+												disabled={generatingImages}
+											>
+												Batch All
+											</button>
+										</div>
+									</div>
 									<div class="space-y-2">
 										{#each ch.sections as sec}
 											<div class="rounded-lg bg-base-300 p-3">
 												<div class="mb-1 flex items-center justify-between">
 													<span class="text-xs font-medium">Panel {sec.sectionNumber}</span>
 													<div class="flex items-center gap-1">
+														<span class="badge badge-outline badge-xs">{sec.sectionType}</span>
 														<span class="badge badge-ghost badge-xs">{sec.panelLayout}</span>
 														{#if sec.status === 'generating'}
 															<span class="badge badge-xs badge-warning">generating</span>
@@ -1720,6 +1906,28 @@
 													<p class="mt-1 text-xs text-base-content/40 italic">
 														Prompt: {sec.imagePrompt}
 													</p>
+													{#if sec.status !== 'generating' && sec.status !== 'complete'}
+														<div class="mt-1 flex gap-1">
+															<button
+																class="btn btn-xs btn-primary"
+																onclick={() => openSectionImageModal(sec.id, `Panel ${sec.sectionNumber}`, 'fast', sec.imagePrompt ?? '')}
+																disabled={true}
+															>
+																Generate
+															</button>
+															{#if !isInSectionBatch(sec.id)}
+																<button
+																	class="btn btn-xs btn-outline"
+																	onclick={() => openSectionImageModal(sec.id, `Panel ${sec.sectionNumber}`, 'batch', sec.imagePrompt ?? '')}
+																	disabled={generatingImages}
+																>
+																	Add to Batch
+																</button>
+															{:else}
+																<span class="badge badge-xs badge-info">In batch</span>
+															{/if}
+														</div>
+													{/if}
 												{/if}
 												{#if sec.images && sec.images.length > 0}
 													<div class="mt-2 flex flex-wrap gap-2">
@@ -1730,7 +1938,7 @@
 																	: 'border-base-content/10'}"
 															>
 																<img
-																	src={img.imageUrl}
+																	src={img.imageId}
 																	alt="Panel {sec.sectionNumber} v{img.version}"
 																	class="h-full w-full object-cover"
 																/>
@@ -1936,6 +2144,69 @@
 		{#if previewImageUrl}
 			<img src={previewImageUrl} alt="Preview" class="w-full rounded" />
 		{/if}
+	</div>
+	<form method="dialog" class="modal-backdrop">
+		<button>close</button>
+	</form>
+</dialog>
+
+<!-- Modal F: Chapter Generation -->
+<dialog bind:this={chapterGenDialog} class="modal">
+	<div class="modal-box">
+		<h3 class="text-lg font-bold">{chapterGenModalTitle()}</h3>
+		<p class="py-2 text-sm text-base-content/60">
+			Add optional instructions to guide the AI generation.
+		</p>
+		<textarea
+			class="textarea-bordered textarea w-full"
+			placeholder="e.g., Make chapters shorter, focus on action scenes, include a cliffhanger..."
+			bind:value={chapterGenFeedback}
+			rows="3"
+		></textarea>
+		<div class="modal-action">
+			<button class="btn btn-ghost" onclick={() => chapterGenDialog?.close()}>Cancel</button>
+			<button
+				class="btn btn-primary"
+				onclick={submitChapterGenModal}
+			>
+				Generate
+			</button>
+		</div>
+	</div>
+	<form method="dialog" class="modal-backdrop">
+		<button>close</button>
+	</form>
+</dialog>
+
+<!-- Modal G: Section Image Generation -->
+<dialog bind:this={sectionImageDialog} class="modal">
+	<div class="modal-box">
+		<h3 class="text-lg font-bold">
+			Generate Image — {sectionImageTargetLabel}
+		</h3>
+		<p class="py-2 text-sm text-base-content/60">
+			{#if sectionImageMode === 'fast'}
+				Generate immediately (2 credits/image).
+			{:else}
+				Add to batch queue (1 credit/image).
+			{/if}
+			Edit the prompt below — changes will be saved.
+		</p>
+		<textarea
+			class="textarea-bordered textarea w-full font-mono textarea-sm"
+			bind:value={sectionImagePrompt}
+			rows="8"
+		></textarea>
+		<div class="modal-action">
+			<button class="btn btn-ghost" onclick={() => sectionImageDialog?.close()}>Cancel</button>
+			<button
+				class="btn btn-primary"
+				onclick={submitSectionImageModal}
+				disabled={!sectionImagePrompt.trim()}
+			>
+				{sectionImageMode === 'fast' ? 'Generate Now' : 'Add to Batch'}
+			</button>
+		</div>
 	</div>
 	<form method="dialog" class="modal-backdrop">
 		<button>close</button>

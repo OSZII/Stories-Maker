@@ -1,3 +1,7 @@
+/**
+ * Utility for parsing Gemini API responses that contain inline image data.
+ */
+
 interface GeminiCandidate {
 	content?: {
 		parts?: Array<{
@@ -10,6 +14,10 @@ interface GeminiCandidate {
 	};
 }
 
+/**
+ * Extract the first image part from a Gemini response candidate.
+ * Returns the decoded buffer and MIME type, or null if no image is found.
+ */
 export function extractImageFromGeminiResponse(
 	candidate: GeminiCandidate
 ): { buffer: Buffer; mimeType: string } | null {

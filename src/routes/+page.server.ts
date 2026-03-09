@@ -1,3 +1,9 @@
+/**
+ * Landing page server load.
+ * Fetches all active products from Polar, separates them into subscriptions
+ * (recurring, sorted by price) and credit packs (one-time), and serializes
+ * them for the pricing section display.
+ */
 import { polarClient } from '$lib/server/polar';
 
 export async function load({ locals }) {
@@ -23,6 +29,7 @@ export async function load({ locals }) {
 	};
 }
 
+/** Extract the fixed price amount (in cents) from a Polar product's prices array. */
 function getFixedPrice(prices: { amountType: string; priceAmount?: number }[]) {
 	const fixed = prices.find((p) => p.amountType === 'fixed');
 	return fixed && 'priceAmount' in fixed ? (fixed.priceAmount as number) : 0;
@@ -32,6 +39,7 @@ type PolarProduct = Awaited<
 	ReturnType<typeof polarClient.products.list>
 >['result']['items'][number];
 
+/** Convert a Polar product to a plain object with just the fields the frontend needs. */
 function serializeProduct(product: PolarProduct) {
 	const fixedPrice = product.prices.find((p) => p.amountType === 'fixed');
 	return {

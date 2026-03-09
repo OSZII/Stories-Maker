@@ -1,3 +1,4 @@
+<!-- Signup page — Google OAuth sign-up button with link to login page. -->
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import type { ActionData } from './$types';
@@ -11,12 +12,12 @@
 			<a href="/" class="text-3xl font-black tracking-tight">
 				<span class="text-primary">Manga</span><span class="text-base-content">Forge</span>
 			</a>
-			<p class="mt-2 text-base-content/60">Create your account</p>
+			<p class="mt-2 text-base-content/60">Sign in to continue</p>
 		</div>
 
 		<div class="card border border-base-300 bg-base-200">
 			<div class="card-body gap-4">
-				<!-- Google Sign Up -->
+				<!-- Google Sign In -->
 				<form method="post" action="?/signInGoogle" use:enhance>
 					<button class="btn w-full gap-2 btn-outline">
 						<svg class="h-5 w-5" viewBox="0 0 24 24" aria-hidden="true">
@@ -41,12 +42,11 @@
 					</button>
 				</form>
 
-				<div class="divider text-xs text-base-content/40">OR</div>
-
-				<p class="text-center text-sm text-base-content/60">
-					Already have an account?
-					<a href="/login" class="link link-primary">Log in</a>
-				</p>
+				{#if form?.message}
+					<div class="alert alert-error text-sm">
+						{form.message}
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>

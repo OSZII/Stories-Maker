@@ -1,3 +1,9 @@
+/**
+ * POST /api/ai/generate-chapter-outline
+ * Splits a story's detailed narrative into chapters with titles and summaries.
+ * Uses OpenRouter LLM. Costs 1 text-gen credit.
+ * Soft-deletes existing chapters and inserts new ones.
+ */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';
@@ -10,7 +16,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	console.log('[generate-chapter-outline] Starting chapter outline generation');
 	if (!locals.user) throw error(401, 'Not authenticated');
 
-	const { storyId } = await request.json();
+	const { storyId, userInput } = await request.json();
 	if (!storyId) throw error(400, 'Missing storyId');
 
 	const project = await db.query.story.findFirst({
@@ -50,13 +56,17 @@ Guidelines:
 - Summaries should be detailed enough to guide further expansion
 - Ensure the chapters cover the entire story from beginning to end`;
 
-	const userPrompt = `Story: ${project.title}
+	let userPrompt = `Story: ${project.title}
 Genre: ${project.genre || 'unspecified'}
 
 Detailed Story Overview:
 ${project.detailedStory}
 
 Split this story into chapters with titles and summaries.`;
+
+	if (userInput?.trim()) {
+		userPrompt += `\n\nThe user specifically requested the following: ${userInput}`;
+	}
 
 	const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
 		method: 'POST',

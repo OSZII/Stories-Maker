@@ -1,7 +1,15 @@
+/**
+ * Credit system — manages the two-pool credit model (subscription + purchased).
+ * Provides check, reserve (debit), and refund operations with full ledger tracking.
+ */
 import { db } from '$lib/server/db';
 import { userCredits, creditLedger } from '$lib/server/db/schema';
 import { eq } from 'drizzle-orm';
 
+/**
+ * Check if a user has enough total credits (subscription + purchased).
+ * Auto-creates a userCredits row with defaults if one doesn't exist yet.
+ */
 export async function checkSufficientCredits(userId: string, required: number) {
 	let credits = await db.query.userCredits.findFirst({
 		where: eq(userCredits.userId, userId)
@@ -16,6 +24,11 @@ export async function checkSufficientCredits(userId: string, required: number) {
 	return { sufficient: available >= required, available };
 }
 
+/**
+ * Debit credits from a user's balance. Draws from subscription credits first
+ * (they expire monthly), then purchased credits. Creates ledger entries for each pool.
+ * Throws if user doesn't have enough credits.
+ */
 export async function reserveCredits(
 	userId: string,
 	amount: number,
@@ -71,6 +84,11 @@ export async function reserveCredits(
 	}
 }
 
+/**
+ * Refund credits back to a user. If a referenceId is provided, looks up the
+ * original ledger entries to proportionally refund to the correct pools.
+ * Falls back to refunding to purchased credits if no reference is found.
+ */
 export async function refundCredits(
 	userId: string,
 	amount: number,

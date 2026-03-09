@@ -1,3 +1,9 @@
+/**
+ * POST /api/ai/generate-characters-batch
+ * Generates descriptions for multiple characters sequentially.
+ * Costs 1 text-gen credit per character. Each character gets its own
+ * OpenRouter API call; partial failures are tracked and returned.
+ */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';

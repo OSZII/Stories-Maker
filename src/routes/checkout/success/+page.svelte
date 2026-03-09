@@ -1,3 +1,4 @@
+<!-- Checkout success confirmation — shows the user's name and purchased product name with a link to dashboard. -->
 <script lang="ts">
 	let { data } = $props();
 </script>

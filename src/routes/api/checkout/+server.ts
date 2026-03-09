@@ -1,3 +1,8 @@
+/**
+ * POST /api/checkout
+ * Creates a Polar checkout session for a given product (subscription or credit pack).
+ * Returns the checkout URL to redirect the user to.
+ */
 import { json, error, redirect } from '@sveltejs/kit';
 import { polarClient } from '$lib/server/polar';
 import { env } from '$env/dynamic/private';

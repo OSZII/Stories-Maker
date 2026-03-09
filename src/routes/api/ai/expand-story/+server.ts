@@ -1,3 +1,9 @@
+/**
+ * POST /api/ai/expand-story
+ * Takes a story's synopsis, characters, and locations and uses OpenRouter LLM
+ * to expand it into a rich, continuous narrative (the "detailed story").
+ * Costs 1 text-gen credit. Stores result in story.detailedStory.
+ */
 import { json, error } from '@sveltejs/kit';
 import type { RequestHandler } from './$types';
 import { db } from '$lib/server/db';

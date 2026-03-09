@@ -1,3 +1,9 @@
+/**
+ * Projects list page.
+ * Load: fetches all non-deleted stories for the user, ordered by last updated.
+ * Actions:
+ *   - create: inserts a new "Untitled Project" story and redirects to its editor.
+ */
 import { redirect } from '@sveltejs/kit';
 import type { PageServerLoad, Actions } from './$types';
 import { db } from '$lib/server/db';
@@ -5,7 +11,7 @@ import { story } from '$lib/server/db/schema';
 import { eq, isNull, desc, and } from 'drizzle-orm';
 
 export const load: PageServerLoad = async ({ locals }) => {
-	if (!locals.user) throw redirect(302, '/login');
+	if (!locals.user) throw redirect(302, '/signup');
 
 	const stories = await db
 		.select({
