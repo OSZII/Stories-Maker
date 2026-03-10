@@ -34,17 +34,18 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	console.log('user', locals.user.email);
 	let myEmails = ['office@ostojicstefan.com', 'stefanvielfrass1404@gmail.com'];
 
-	const isAdmin = myEmails.includes(locals.user.email);
+	// const isAdmin = myEmails.includes(locals.user.email);
 	let project = await db.query.story.findFirst({
-		where: and(
-			eq(story.id, params.projectId),
-			...(isAdmin ? [] : [eq(story.userId, locals.user!.id)]),
-			isNull(story.deletedAt)
-		)
+		where: and(eq(story.id, params.projectId), isNull(story.deletedAt))
 	});
 
 	if (!project) throw error(404, 'Project not found');
 
+	if (project.userId !== locals.user.id && !myEmails.includes(locals.user.email)) {
+		throw error(404, 'Project not found!');
+	}
+
+	// project?.userId;
 	const characters = await db.query.character.findMany({
 		where: and(eq(character.storyId, project.id), isNull(character.deletedAt)),
 		orderBy: asc(character.sortOrder),

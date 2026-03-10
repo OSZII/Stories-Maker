@@ -6,7 +6,7 @@
  */
 
 import { sequence } from '@sveltejs/kit/hooks';
-import { building } from '$app/environment';
+import { building, dev } from '$app/environment';
 import { auth } from '$lib/server/auth';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 import type { Handle } from '@sveltejs/kit';
@@ -17,7 +17,7 @@ import { pollPendingJobs } from '$lib/server/jobs/poll-generations';
 import { processRefImageQueue } from '$lib/server/jobs/process-ref-image-queue';
 
 // Schedule background cron jobs only at runtime (not during `npm run build`)
-if (!building) {
+if (!building && !dev) {
 	// Every minute: poll Google Batch API for completed image generation operations
 	cron.schedule(
 		'* * * * *',
@@ -77,12 +77,18 @@ const handleParaglide: Handle = ({ event, resolve }) =>
 		});
 	});
 
+// let polling = false;
+
 /**
  * Better Auth middleware — reads the session cookie from the request,
  * populates `event.locals.user` and `event.locals.session` if authenticated,
  * then delegates to Better Auth's SvelteKit handler for auth API routes.
  */
 const handleBetterAuth: Handle = async ({ event, resolve }) => {
+	// if (!polling) {
+	// 	polling = true;
+	// 	await pollPendingJobs();
+	// }
 	const session = await auth.api.getSession({ headers: event.request.headers });
 
 	if (session) {

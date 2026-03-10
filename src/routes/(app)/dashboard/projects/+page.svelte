@@ -70,7 +70,7 @@
 		<div class="flex flex-col gap-3">
 			{#each data.stories as project}
 				<a
-					href="/dashboard/projects/{project.id}"
+					href="/dashboard/projects/{project.id}/define"
 					class="card border border-base-300 bg-base-200 transition-colors hover:border-primary/30"
 				>
 					<div class="card-body flex-row items-center gap-4 py-4">
