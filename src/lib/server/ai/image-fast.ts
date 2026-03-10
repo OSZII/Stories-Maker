@@ -179,9 +179,8 @@ async function generateSingleImage(
 
 	// Upload to R2
 	const imageId = crypto.randomUUID();
-	const ext = imageData.mimeType === 'image/jpeg' ? 'jpg' : 'png';
-	const key = `stories/${storyId}/sections/${sec.id}/${imageId}.${ext}`;
-	await uploadImage(imageData.buffer, key, imageData.mimeType);
+	const key = `stories/${storyId}/sections/${sec.id}/${imageId}.jpg`;
+	await uploadImage(imageData.buffer, key);
 
 	// Get current version count
 	const existingImages = await db

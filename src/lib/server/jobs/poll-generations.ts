@@ -63,7 +63,6 @@ export async function pollPendingJobs() {
 	for (const job of pendingJobs) {
 		try {
 			// console.log('test1');
-
 			await pollSingleJob(job, apiKey);
 		} catch (err) {
 			console.error(`[poll-generations] Error polling job ${job.id}:`, err);
@@ -91,15 +90,16 @@ async function pollSingleJob(job: typeof generationJob.$inferSelect, apiKey: str
 	debug('Operation status:', JSON.stringify(operation).slice(0, 2000));
 
 	if (!operation.done) {
-		if (job.status === 'submitted') {
-			await db
-				.update(generationJob)
-				.set({ status: 'processing' })
-				.where(eq(generationJob.id, job.id));
-		}
+		// return leave status submitted until completion
 		return;
 	}
 
+	debug(
+		"[poll-generations] Gemini Operation is done. Updating job status to 'processing' while we handle results."
+	);
+	await db.update(generationJob).set({ status: 'processing' }).where(eq(generationJob.id, job.id));
+
+	// return;
 	console.log(`[poll-generations] Batch done for job ${job.id}`);
 
 	// Operation is done — check for error
@@ -175,6 +175,7 @@ async function downloadResponsesFile(responsesFile: string, apiKey: string): Pro
 		throw new Error('No body in responsesFile download response');
 	}
 
+	debug('responsesFile downloaded');
 	const tmpPath = join(tmpdir(), `batch-responses-${crypto.randomUUID()}.jsonl`);
 	const writeStream = createWriteStream(tmpPath);
 
@@ -265,14 +266,13 @@ async function processBatchResults(
 				debug(`Image extracted: mime=${imageData.mimeType}, size=${imageData.buffer.length}`);
 
 				const imageId = crypto.randomUUID();
-				const ext = imageData.mimeType === 'image/jpeg' ? 'jpg' : 'png';
 
 				if (entityType === 'section') {
-					await processSectionResult(imageTableId, imageId, ext, imageData, job.id);
+					await processSectionResult(imageTableId, imageId, imageData, job.id);
 				} else if (entityType === 'character') {
-					await processCharacterResult(imageTableId, imageId, ext, imageData, job.id);
+					await processCharacterResult(imageTableId, imageId, imageData, job.id);
 				} else if (entityType === 'location') {
-					await processLocationResult(imageTableId, imageId, ext, imageData, job.id);
+					await processLocationResult(imageTableId, imageId, imageData, job.id);
 				} else {
 					debug('Unknown entity type:', entityType);
 					continue;
@@ -347,7 +347,6 @@ async function processBatchResults(
 async function processSectionResult(
 	imageTableId: string,
 	imageId: string,
-	ext: string,
 	imageData: { buffer: Buffer; mimeType: string },
 	jobId: string
 ) {
@@ -375,9 +374,9 @@ async function processSectionResult(
 	const storyId = chapRow?.storyId;
 	if (!storyId) throw new Error('Story not found for section');
 
-	const imageKey = `stories/${storyId}/sections/${imgRow.sectionId}/${imageId}.${ext}`;
+	const imageKey = `stories/${storyId}/sections/${imgRow.sectionId}/${imageId}.jpg`;
 	debug('Uploading section image:', imageKey);
-	await uploadImage(imageData.buffer, imageKey, imageData.mimeType);
+	await uploadImage(imageData.buffer, imageKey);
 
 	// Update existing sectionImage row
 	await db
@@ -391,7 +390,6 @@ async function processSectionResult(
 async function processCharacterResult(
 	imageTableId: string,
 	imageId: string,
-	ext: string,
 	imageData: { buffer: Buffer; mimeType: string },
 	jobId: string
 ) {
@@ -410,9 +408,9 @@ async function processCharacterResult(
 	const storyId = charRow?.storyId;
 	if (!storyId) throw new Error('Story not found for character');
 
-	const imageKey = `stories/${storyId}/characters/${imgRow.characterId}/${imageId}.${ext}`;
+	const imageKey = `stories/${storyId}/characters/${imgRow.characterId}/${imageId}.jpg`;
 	debug('Uploading character image:', imageKey);
-	await uploadImage(imageData.buffer, imageKey, imageData.mimeType);
+	await uploadImage(imageData.buffer, imageKey);
 
 	await db
 		.update(characterImage)
@@ -428,7 +426,6 @@ async function processCharacterResult(
 async function processLocationResult(
 	imageTableId: string,
 	imageId: string,
-	ext: string,
 	imageData: { buffer: Buffer; mimeType: string },
 	jobId: string
 ) {
@@ -447,9 +444,9 @@ async function processLocationResult(
 	const storyId = locRow?.storyId;
 	if (!storyId) throw new Error('Story not found for location');
 
-	const imageKey = `stories/${storyId}/locations/${imgRow.locationId}/${imageId}.${ext}`;
+	const imageKey = `stories/${storyId}/locations/${imgRow.locationId}/${imageId}.jpg`;
 	debug('Uploading location image:', imageKey);
-	await uploadImage(imageData.buffer, imageKey, imageData.mimeType);
+	await uploadImage(imageData.buffer, imageKey);
 
 	await db
 		.update(locationImage)

@@ -9,6 +9,7 @@ import {
 	GetObjectCommand
 } from '@aws-sdk/client-s3';
 import { env } from '$env/dynamic/private';
+import sharp from 'sharp';
 
 const r2 = new S3Client({
 	region: 'auto',
@@ -22,14 +23,15 @@ const r2 = new S3Client({
 const bucket = env.R2_BUCKET_NAME!;
 const publicBase = `https://${env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com/${bucket}`;
 
-/** Upload an image buffer to R2. Returns the storage key. */
-export async function uploadImage(buffer: Buffer, key: string, contentType = 'image/png') {
+/** Upload an image buffer to R2. Converts to JPEG (80% quality) before upload. Returns the storage key. */
+export async function uploadImage(buffer: Buffer, key: string) {
+	const jpegBuffer = await sharp(buffer).jpeg({ quality: 80 }).toBuffer();
 	await r2.send(
 		new PutObjectCommand({
 			Bucket: bucket,
 			Key: key,
-			Body: buffer,
-			ContentType: contentType
+			Body: jpegBuffer,
+			ContentType: 'image/jpeg'
 		})
 	);
 	return key;

@@ -12,7 +12,7 @@
  *   - updateChapter: save chapter title, summary, and detailed script
  */
 import { error, fail, redirect } from '@sveltejs/kit';
-import type { PageServerLoad, Actions } from './$types';
+import type { PageServerLoad, Actions } from '../$types';
 import { db } from '$lib/server/db';
 import {
 	story,
@@ -31,10 +31,14 @@ import { sql } from 'drizzle-orm';
 export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!locals.user) throw redirect(302, '/signup');
 
-	const project = await db.query.story.findFirst({
+	console.log('user', locals.user.email);
+	let myEmails = ['office@ostojicstefan.com', 'stefanvielfrass1404@gmail.com'];
+
+	const isAdmin = myEmails.includes(locals.user.email);
+	let project = await db.query.story.findFirst({
 		where: and(
 			eq(story.id, params.projectId),
-			eq(story.userId, locals.user!.id),
+			...(isAdmin ? [] : [eq(story.userId, locals.user!.id)]),
 			isNull(story.deletedAt)
 		)
 	});
@@ -122,10 +126,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 	let activeJob = null;
 	if (activeJobId) {
-		const [jobRow] = await db
-			.select()
-			.from(generationJob)
-			.where(eq(generationJob.id, activeJobId));
+		const [jobRow] = await db.select().from(generationJob).where(eq(generationJob.id, activeJobId));
 		activeJob = jobRow || null;
 	}
 

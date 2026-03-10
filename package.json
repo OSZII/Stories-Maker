@@ -55,9 +55,10 @@
 		"@polar-sh/better-auth": "^1.8.2",
 		"@polar-sh/sdk": "^0.46.2",
 		"node-cron": "^4.2.1",
-		"pg": "^8.20.0"
+		"pg": "^8.20.0",
+		"sharp": "^0.34.5"
 	},
 	"engines": {
-		"node": ">=22.12"
+		"node": ">=20.12"
 	}
 }

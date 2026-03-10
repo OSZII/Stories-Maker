@@ -15,10 +15,14 @@
 -->
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
+	import { page } from '$app/state';
 	import { addToast } from '$lib/stores/toast.svelte';
+	// import { page } from '$app/svelte';
 
 	let { data, form } = $props();
+
+	console.log(page.params.step, 'data');
 
 	let activePhase = $state(1);
 	let expandingStory = $state(false);
@@ -107,9 +111,7 @@
 
 	/** Check if an entity is already in the batch queue. */
 	function isInRefBatch(entityType: 'character' | 'location', entityId: string) {
-		return refImageBatchQueue.some(
-			(i) => i.entityType === entityType && i.entityId === entityId
-		);
+		return refImageBatchQueue.some((i) => i.entityType === entityType && i.entityId === entityId);
 	}
 
 	/** Call the fast reference image generation API for a single entity. Shows toast on completion/error. */
@@ -209,8 +211,7 @@
 		} else {
 			refImageBatchQueue = [
 				...refImageBatchQueue.filter(
-					(i) =>
-						!(i.entityType === editImageEntityType && i.entityId === editImageEntityId)
+					(i) => !(i.entityType === editImageEntityType && i.entityId === editImageEntityId)
 				),
 				{
 					entityType: editImageEntityType,
@@ -223,18 +224,26 @@
 
 	/** Get the primary (or first completed) image from an entity's image array. */
 	function getPrimaryImage(
-		images: Array<{ imageId: string | null; isPrimary: boolean; version: number; prompt: string | null; status: string; createdAt: Date }>
+		images: Array<{
+			imageId: string | null;
+			isPrimary: boolean;
+			version: number;
+			prompt: string | null;
+			status: string;
+			createdAt: Date;
+		}>
 	) {
 		const complete = images.filter((i) => i.status === 'complete' && i.imageId);
 		return complete.find((i) => i.isPrimary) || complete[0] || null;
 	}
 
 	/** Check if any image in the array is still queued or being generated. */
-	function hasQueuedOrGenerating(
-		images: Array<{ status: string }>
-	) {
+	function hasQueuedOrGenerating(images: Array<{ status: string }>) {
 		return images.some((i) => i.status === 'queued' || i.status === 'generating');
 	}
+
+	// Read mode toggle (script phase)
+	let readMode = $state(false);
 
 	// Image generation state
 	let generatingImages = $state(false);
@@ -292,7 +301,11 @@
 	});
 
 	/** Start bulk panel image generation for all sections — kicks off the job and starts polling. */
-	async function startImageGeneration(mode: 'batch' | 'fast', sectionIds?: string[], userInstructions?: Record<string, string>) {
+	async function startImageGeneration(
+		mode: 'batch' | 'fast',
+		sectionIds?: string[],
+		userInstructions?: Record<string, string>
+	) {
 		generatingImages = true;
 		generationMode = mode;
 		try {
@@ -340,7 +353,9 @@
 	);
 	let hasDetailedStory = $derived(!!data.project.detailedStory?.trim());
 	let hasChapters = $derived(data.chapters.length > 0);
-	let hasScriptedChapters = $derived(data.chapters.some((ch: { detailedScript?: string | null }) => !!ch.detailedScript));
+	let hasScriptedChapters = $derived(
+		data.chapters.some((ch: { detailedScript?: string | null }) => !!ch.detailedScript)
+	);
 	let hasChaptersWithSections = $derived(
 		data.chapters.some((ch: { sections?: unknown[] }) => ch.sections && ch.sections.length > 0)
 	);
@@ -463,7 +478,11 @@
 			const res = await fetch('/api/ai/generate-chapter-detail', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ storyId: data.project.id, chapterId, userInput: userInput || undefined })
+				body: JSON.stringify({
+					storyId: data.project.id,
+					chapterId,
+					userInput: userInput || undefined
+				})
 			});
 			if (!res.ok) {
 				if (res.status === 402) {
@@ -490,7 +509,11 @@
 			const res = await fetch('/api/ai/generate-chapter-sections', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ storyId: data.project.id, chapterId, userInput: userInput || undefined })
+				body: JSON.stringify({
+					storyId: data.project.id,
+					chapterId,
+					userInput: userInput || undefined
+				})
 			});
 			if (!res.ok) {
 				if (res.status === 402) {
@@ -695,15 +718,24 @@
 	/** Get title text for the chapter generation modal based on current action. */
 	function chapterGenModalTitle(): string {
 		switch (chapterGenAction) {
-			case 'outline': return 'Generate Chapter Outline';
-			case 'detail': return 'Generate Chapter Detail';
-			case 'sections': return 'Generate Sections / Panels';
-			default: return 'Generate';
+			case 'outline':
+				return 'Generate Chapter Outline';
+			case 'detail':
+				return 'Generate Chapter Detail';
+			case 'sections':
+				return 'Generate Sections / Panels';
+			default:
+				return 'Generate';
 		}
 	}
 
 	/** Open the section image generation modal — pre-fills with the section's current prompt. */
-	function openSectionImageModal(sectionId: string, label: string, mode: 'fast' | 'batch', existingPrompt: string) {
+	function openSectionImageModal(
+		sectionId: string,
+		label: string,
+		mode: 'fast' | 'batch',
+		existingPrompt: string
+	) {
 		sectionImageTargetId = sectionId;
 		sectionImageTargetLabel = label;
 		sectionImageMode = mode;
@@ -757,25 +789,46 @@
 	const R2_BASE = 'https://stories-maker-bucket.ostojicstefan.com';
 
 	/** Build the R2 public URL for a character's primary reference image. */
-	function getCharacterImageUrl(character: { id: string; images: Array<{ imageId: string | null; isPrimary: boolean; status: string }> }) {
-		const img = character.images.find((i) => i.isPrimary && i.imageId && i.status === 'complete') || character.images.find((i) => i.imageId && i.status === 'complete');
+	function getCharacterImageUrl(character: {
+		id: string;
+		images: Array<{ imageId: string | null; isPrimary: boolean; status: string }>;
+	}) {
+		const img =
+			character.images.find((i) => i.isPrimary && i.imageId && i.status === 'complete') ||
+			character.images.find((i) => i.imageId && i.status === 'complete');
 		if (!img?.imageId) return '';
-		return `${R2_BASE}/stories/${data.project.id}/characters/${character.id}/${img.imageId}.png`;
+		return `${R2_BASE}/stories/${data.project.id}/characters/${character.id}/${img.imageId}.jpg`;
 	}
 
 	/** Build the R2 public URL for a location's primary reference image. */
-	function getLocationImageUrl(loc: { id: string; images: Array<{ imageId: string | null; isPrimary: boolean; status: string }> }) {
-		const img = loc.images.find((i) => i.isPrimary && i.imageId && i.status === 'complete') || loc.images.find((i) => i.imageId && i.status === 'complete');
+	function getLocationImageUrl(loc: {
+		id: string;
+		images: Array<{ imageId: string | null; isPrimary: boolean; status: string }>;
+	}) {
+		const img =
+			loc.images.find((i) => i.isPrimary && i.imageId && i.status === 'complete') ||
+			loc.images.find((i) => i.imageId && i.status === 'complete');
 		if (!img?.imageId) return '';
-		return `${R2_BASE}/stories/${data.project.id}/locations/${loc.id}/${img.imageId}.png`;
+		return `${R2_BASE}/stories/${data.project.id}/locations/${loc.id}/${img.imageId}.jpg`;
 	}
 
 	function getCharImageHistoryUrl(charId: string, imageId: string) {
-		return `${R2_BASE}/stories/${data.project.id}/characters/${charId}/${imageId}.png`;
+		return `${R2_BASE}/stories/${data.project.id}/characters/${charId}/${imageId}.jpg`;
 	}
 
 	function getLocImageHistoryUrl(locId: string, imageId: string) {
-		return `${R2_BASE}/stories/${data.project.id}/locations/${locId}/${imageId}.png`;
+		return `${R2_BASE}/stories/${data.project.id}/locations/${locId}/${imageId}.jpg`;
+	}
+
+	function getSectionImageUrl(section: any) {
+		let selectedImage = section.images.find((image) => image.isSelected);
+
+		if (!selectedImage) {
+			return '';
+		}
+
+		let url = `${R2_BASE}/stories/${data.project.id}/sections/${section.id}/${selectedImage.imageId}.jpg`;
+		return url;
 	}
 
 	// Image preview modal
@@ -790,6 +843,11 @@
 			previewImageUrl = url;
 			previewImageDialog?.showModal();
 		});
+	}
+
+	function gotoStep(step: string) {
+		let url = page.url.pathname.replace(page.params.step ?? '', step);
+		goto(url);
 	}
 </script>
 
@@ -816,19 +874,19 @@
 
 	<!-- Phase Tabs -->
 	<div class="tabs-box mb-8 tabs">
-		<button class="tab {activePhase === 1 ? 'tab-active' : ''}" onclick={() => (activePhase = 1)}>
+		<button class="tab {page.params.step === 'define' ? 'tab-active' : ''}" onclick={() => gotoStep('define')}>
 			1. Define
 		</button>
 		<button
-			class="tab {activePhase === 2 ? 'tab-active' : ''}"
-			onclick={() => (activePhase = 2)}
+			class="tab {page.params.step === 'refine' ? 'tab-active' : ''}"
+			onclick={() => gotoStep('refine')}
 			disabled={!phase1Complete}
 		>
 			2. Refine
 		</button>
 		<button
-			class="tab {activePhase === 3 ? 'tab-active' : ''}"
-			onclick={() => (activePhase = 3)}
+			class="tab {page.params.step === 'script' ? 'tab-active' : ''}"
+			onclick={() => gotoStep('script')}
 			disabled={!phase2Complete}
 		>
 			3. Script
@@ -836,7 +894,7 @@
 	</div>
 
 	<!-- ═══════════ PHASE 1: DEFINE ═══════════ -->
-	{#if activePhase === 1}
+	{#if page.params.step === 'define'}
 		<div class="space-y-6">
 			<!-- Story Details -->
 			<div class="card border border-base-300 bg-base-200">
@@ -1054,30 +1112,72 @@
 												{#if primaryImg}
 													<!-- svelte-ignore a11y_click_events_have_key_events -->
 													<!-- svelte-ignore a11y_no_static_element_interactions -->
-													<div class="relative h-24 w-24 cursor-pointer overflow-hidden rounded-lg border-2 border-base-300" onclick={() => openImagePreview(getCharacterImageUrl(char))}>
-														<img src={getCharacterImageUrl(char)} alt={char.name} class="h-full w-full object-cover" />
+													<div
+														class="relative h-24 w-24 cursor-pointer overflow-hidden rounded-lg border-2 border-base-300"
+														onclick={() => openImagePreview(getCharacterImageUrl(char))}
+													>
+														<img
+															src={getCharacterImageUrl(char)}
+															alt={char.name}
+															class="h-full w-full object-cover"
+														/>
 													</div>
 													<div class="flex gap-0.5">
-														<button class="btn btn-xs btn-ghost" title="Edit image (fast, 2 credits)" onclick={() => openEditImageModal('character', char.id, char.name, 'fast')} disabled={true}>Edit</button>
-														<button class="btn btn-xs btn-ghost" title="Edit image (batch, 1 credit)" onclick={() => openEditImageModal('character', char.id, char.name, 'batch')} disabled={isGenChar}>Batch</button>
+														<button
+															class="btn btn-ghost btn-xs"
+															title="Edit image (fast, 2 credits)"
+															onclick={() =>
+																openEditImageModal('character', char.id, char.name, 'fast')}
+															disabled={true}>Edit</button
+														>
+														<button
+															class="btn btn-ghost btn-xs"
+															title="Edit image (batch, 1 credit)"
+															onclick={() =>
+																openEditImageModal('character', char.id, char.name, 'batch')}
+															disabled={isGenChar}>Batch</button
+														>
 													</div>
 													{#if char.images && char.images.length > 1}
-														<button class="btn btn-xs btn-ghost" onclick={() => (charImageHistoryId = charImageHistoryId === char.id ? null : char.id)}>
+														<button
+															class="btn btn-ghost btn-xs"
+															onclick={() =>
+																(charImageHistoryId =
+																	charImageHistoryId === char.id ? null : char.id)}
+														>
 															History ({char.images.length})
 														</button>
 													{/if}
 												{:else if isGenChar}
-													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300">
+													<div
+														class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300"
+													>
 														<span class="loading loading-sm loading-spinner"></span>
 													</div>
 												{:else if hasQueuedChar}
-													<div class="flex h-24 w-24 flex-col items-center justify-center rounded-lg border-2 border-dashed border-info/50 text-info/60">
+													<div
+														class="flex h-24 w-24 flex-col items-center justify-center rounded-lg border-2 border-dashed border-info/50 text-info/60"
+													>
 														<span class="loading loading-xs loading-dots"></span>
 														<span class="mt-1 text-[10px]">Queued</span>
 													</div>
 												{:else}
-													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300 text-base-content/30">
-														<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" /></svg>
+													<div
+														class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300 text-base-content/30"
+													>
+														<svg
+															xmlns="http://www.w3.org/2000/svg"
+															class="h-8 w-8"
+															fill="none"
+															viewBox="0 0 24 24"
+															stroke="currentColor"
+															stroke-width="1.5"
+															><path
+																stroke-linecap="round"
+																stroke-linejoin="round"
+																d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"
+															/></svg
+														>
 													</div>
 												{/if}
 											</div>
@@ -1096,28 +1196,52 @@
 															<p class="mt-1 text-sm text-base-content/60">{char.description}</p>
 														{/if}
 														{#if char.visualDescription}
-															<p class="mt-1 text-xs text-base-content/40 italic">{char.visualDescription}</p>
+															<p class="mt-1 text-xs text-base-content/40 italic">
+																{char.visualDescription}
+															</p>
 														{/if}
 													</div>
 													<div class="flex shrink-0 flex-col gap-1">
 														<div class="flex gap-1">
 															<button
-																class="btn btn-xs {char.id in characterAiInputs ? 'btn-accent' : 'btn-ghost'}"
+																class="btn btn-xs {char.id in characterAiInputs
+																	? 'btn-accent'
+																	: 'btn-ghost'}"
 																title="Configure AI description generation"
-																onclick={() => openCharAiModal(char.id, char.name)}
-															>AI</button>
-															<button class="btn btn-ghost btn-xs" onclick={() => (editingCharacterId = char.id)}>Edit</button>
+																onclick={() => openCharAiModal(char.id, char.name)}>AI</button
+															>
+															<button
+																class="btn btn-ghost btn-xs"
+																onclick={() => (editingCharacterId = char.id)}>Edit</button
+															>
 															<form method="post" action="?/deleteCharacter" use:enhance>
 																<input type="hidden" name="characterId" value={char.id} />
 																<button class="btn text-error btn-ghost btn-xs">Del</button>
 															</form>
 														</div>
 														<div class="flex gap-1">
-															<button class="btn btn-xs btn-secondary" title="Generate image (2 credits)" onclick={() => generateRefImageFast('character', char.id)} disabled={true}>
-																{#if isGenChar}<span class="loading loading-xs loading-spinner"></span>{/if}
+															<button
+																class="btn btn-xs btn-secondary"
+																title="Generate image (2 credits)"
+																onclick={() => generateRefImageFast('character', char.id)}
+																disabled={true}
+															>
+																{#if isGenChar}<span class="loading loading-xs loading-spinner"
+																	></span>{/if}
 																Fast
 															</button>
-															<button class="btn btn-xs btn-outline" title="Add to batch (1 credit)" onclick={() => { if (isInRefBatch('character', char.id)) { removeFromRefBatch('character', char.id); } else { addToRefBatch('character', char.id); } }} disabled={submittingRefBatch}>
+															<button
+																class="btn btn-outline btn-xs"
+																title="Add to batch (1 credit)"
+																onclick={() => {
+																	if (isInRefBatch('character', char.id)) {
+																		removeFromRefBatch('character', char.id);
+																	} else {
+																		addToRefBatch('character', char.id);
+																	}
+																}}
+																disabled={submittingRefBatch}
+															>
 																{isInRefBatch('character', char.id) ? 'Unqueue' : 'Batch'}
 															</button>
 														</div>
@@ -1130,19 +1254,38 @@
 															{#if img.imageId && img.status === 'complete'}
 																<!-- svelte-ignore a11y_click_events_have_key_events -->
 																<!-- svelte-ignore a11y_no_static_element_interactions -->
-																<div class="relative h-16 w-16 cursor-pointer overflow-hidden rounded border-2 {img.isPrimary ? 'border-primary' : 'border-base-content/10'}" title="v{img.version}{img.prompt ? ` — ${img.prompt.substring(0, 80)}` : ''}" onclick={() => openImagePreview(getCharImageHistoryUrl(char.id, img.imageId!))}>
-																	<img src={getCharImageHistoryUrl(char.id, img.imageId!)} alt="v{img.version}" class="h-full w-full object-cover" />
+																<div
+																	class="relative h-16 w-16 cursor-pointer overflow-hidden rounded border-2 {img.isPrimary
+																		? 'border-primary'
+																		: 'border-base-content/10'}"
+																	title="v{img.version}{img.prompt
+																		? ` — ${img.prompt.substring(0, 80)}`
+																		: ''}"
+																	onclick={() =>
+																		openImagePreview(getCharImageHistoryUrl(char.id, img.imageId!))}
+																>
+																	<img
+																		src={getCharImageHistoryUrl(char.id, img.imageId!)}
+																		alt="v{img.version}"
+																		class="h-full w-full object-cover"
+																	/>
 																	{#if img.isPrimary}
-																		<div class="absolute top-0 right-0"><span class="badge badge-xs badge-primary">cur</span></div>
+																		<div class="absolute top-0 right-0">
+																			<span class="badge badge-xs badge-primary">cur</span>
+																		</div>
 																	{/if}
 																</div>
 															{:else if img.status === 'queued' || img.status === 'generating'}
-																<div class="flex h-16 w-16 flex-col items-center justify-center rounded border-2 border-dashed border-info/30 text-info/50">
+																<div
+																	class="flex h-16 w-16 flex-col items-center justify-center rounded border-2 border-dashed border-info/30 text-info/50"
+																>
 																	<span class="loading loading-xs loading-dots"></span>
 																	<span class="text-[8px]">{img.status}</span>
 																</div>
 															{:else if img.status === 'failed'}
-																<div class="flex h-16 w-16 items-center justify-center rounded border-2 border-dashed border-error/30 text-error/50 text-[8px]">
+																<div
+																	class="flex h-16 w-16 items-center justify-center rounded border-2 border-dashed border-error/30 text-[8px] text-error/50"
+																>
 																	Failed
 																</div>
 															{/if}
@@ -1291,30 +1434,71 @@
 												{#if primaryLocImg}
 													<!-- svelte-ignore a11y_click_events_have_key_events -->
 													<!-- svelte-ignore a11y_no_static_element_interactions -->
-													<div class="relative h-24 w-24 cursor-pointer overflow-hidden rounded-lg border-2 border-base-300" onclick={() => openImagePreview(getLocationImageUrl(loc))}>
-														<img src={getLocationImageUrl(loc)} alt={loc.name} class="h-full w-full object-cover" />
+													<div
+														class="relative h-24 w-24 cursor-pointer overflow-hidden rounded-lg border-2 border-base-300"
+														onclick={() => openImagePreview(getLocationImageUrl(loc))}
+													>
+														<img
+															src={getLocationImageUrl(loc)}
+															alt={loc.name}
+															class="h-full w-full object-cover"
+														/>
 													</div>
 													<div class="flex gap-0.5">
-														<button class="btn btn-xs btn-ghost" title="Edit image (fast, 2 credits)" onclick={() => openEditImageModal('location', loc.id, loc.name, 'fast')} disabled={true}>Edit</button>
-														<button class="btn btn-xs btn-ghost" title="Edit image (batch, 1 credit)" onclick={() => openEditImageModal('location', loc.id, loc.name, 'batch')} disabled={isGenLoc}>Batch</button>
+														<button
+															class="btn btn-ghost btn-xs"
+															title="Edit image (fast, 2 credits)"
+															onclick={() =>
+																openEditImageModal('location', loc.id, loc.name, 'fast')}
+															disabled={true}>Edit</button
+														>
+														<button
+															class="btn btn-ghost btn-xs"
+															title="Edit image (batch, 1 credit)"
+															onclick={() =>
+																openEditImageModal('location', loc.id, loc.name, 'batch')}
+															disabled={isGenLoc}>Batch</button
+														>
 													</div>
 													{#if loc.images && loc.images.length > 1}
-														<button class="btn btn-xs btn-ghost" onclick={() => (locImageHistoryId = locImageHistoryId === loc.id ? null : loc.id)}>
+														<button
+															class="btn btn-ghost btn-xs"
+															onclick={() =>
+																(locImageHistoryId = locImageHistoryId === loc.id ? null : loc.id)}
+														>
 															History ({loc.images.length})
 														</button>
 													{/if}
 												{:else if isGenLoc}
-													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300">
+													<div
+														class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300"
+													>
 														<span class="loading loading-sm loading-spinner"></span>
 													</div>
 												{:else if hasQueuedLoc}
-													<div class="flex h-24 w-24 flex-col items-center justify-center rounded-lg border-2 border-dashed border-info/50 text-info/60">
+													<div
+														class="flex h-24 w-24 flex-col items-center justify-center rounded-lg border-2 border-dashed border-info/50 text-info/60"
+													>
 														<span class="loading loading-xs loading-dots"></span>
 														<span class="mt-1 text-[10px]">Queued</span>
 													</div>
 												{:else}
-													<div class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300 text-base-content/30">
-														<svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z" /></svg>
+													<div
+														class="flex h-24 w-24 items-center justify-center rounded-lg border-2 border-dashed border-base-300 text-base-content/30"
+													>
+														<svg
+															xmlns="http://www.w3.org/2000/svg"
+															class="h-8 w-8"
+															fill="none"
+															viewBox="0 0 24 24"
+															stroke="currentColor"
+															stroke-width="1.5"
+															><path
+																stroke-linecap="round"
+																stroke-linejoin="round"
+																d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0022.5 18.75V5.25A2.25 2.25 0 0020.25 3H3.75A2.25 2.25 0 001.5 5.25v13.5A2.25 2.25 0 003.75 21z"
+															/></svg
+														>
 													</div>
 												{/if}
 											</div>
@@ -1334,18 +1518,38 @@
 													</div>
 													<div class="flex shrink-0 flex-col gap-1">
 														<div class="flex gap-1">
-															<button class="btn btn-ghost btn-xs" onclick={() => (editingLocationId = loc.id)}>Edit</button>
+															<button
+																class="btn btn-ghost btn-xs"
+																onclick={() => (editingLocationId = loc.id)}>Edit</button
+															>
 															<form method="post" action="?/deleteLocation" use:enhance>
 																<input type="hidden" name="locationId" value={loc.id} />
 																<button class="btn text-error btn-ghost btn-xs">Del</button>
 															</form>
 														</div>
 														<div class="flex gap-1">
-															<button class="btn btn-xs btn-secondary" title="Generate image (2 credits)" onclick={() => generateRefImageFast('location', loc.id)} disabled={true}>
-																{#if isGenLoc}<span class="loading loading-xs loading-spinner"></span>{/if}
+															<button
+																class="btn btn-xs btn-secondary"
+																title="Generate image (2 credits)"
+																onclick={() => generateRefImageFast('location', loc.id)}
+																disabled={true}
+															>
+																{#if isGenLoc}<span class="loading loading-xs loading-spinner"
+																	></span>{/if}
 																Fast
 															</button>
-															<button class="btn btn-xs btn-outline" title="Add to batch (1 credit)" onclick={() => { if (isInRefBatch('location', loc.id)) { removeFromRefBatch('location', loc.id); } else { addToRefBatch('location', loc.id); } }} disabled={submittingRefBatch}>
+															<button
+																class="btn btn-outline btn-xs"
+																title="Add to batch (1 credit)"
+																onclick={() => {
+																	if (isInRefBatch('location', loc.id)) {
+																		removeFromRefBatch('location', loc.id);
+																	} else {
+																		addToRefBatch('location', loc.id);
+																	}
+																}}
+																disabled={submittingRefBatch}
+															>
 																{isInRefBatch('location', loc.id) ? 'Unqueue' : 'Batch'}
 															</button>
 														</div>
@@ -1358,19 +1562,38 @@
 															{#if img.imageId && img.status === 'complete'}
 																<!-- svelte-ignore a11y_click_events_have_key_events -->
 																<!-- svelte-ignore a11y_no_static_element_interactions -->
-																<div class="relative h-16 w-16 cursor-pointer overflow-hidden rounded border-2 {img.isPrimary ? 'border-primary' : 'border-base-content/10'}" title="v{img.version}{img.prompt ? ` — ${img.prompt.substring(0, 80)}` : ''}" onclick={() => openImagePreview(getLocImageHistoryUrl(loc.id, img.imageId!))}>
-																	<img src={getLocImageHistoryUrl(loc.id, img.imageId!)} alt="v{img.version}" class="h-full w-full object-cover" />
+																<div
+																	class="relative h-16 w-16 cursor-pointer overflow-hidden rounded border-2 {img.isPrimary
+																		? 'border-primary'
+																		: 'border-base-content/10'}"
+																	title="v{img.version}{img.prompt
+																		? ` — ${img.prompt.substring(0, 80)}`
+																		: ''}"
+																	onclick={() =>
+																		openImagePreview(getLocImageHistoryUrl(loc.id, img.imageId!))}
+																>
+																	<img
+																		src={getLocImageHistoryUrl(loc.id, img.imageId!)}
+																		alt="v{img.version}"
+																		class="h-full w-full object-cover"
+																	/>
 																	{#if img.isPrimary}
-																		<div class="absolute top-0 right-0"><span class="badge badge-xs badge-primary">cur</span></div>
+																		<div class="absolute top-0 right-0">
+																			<span class="badge badge-xs badge-primary">cur</span>
+																		</div>
 																	{/if}
 																</div>
 															{:else if img.status === 'queued' || img.status === 'generating'}
-																<div class="flex h-16 w-16 flex-col items-center justify-center rounded border-2 border-dashed border-info/30 text-info/50">
+																<div
+																	class="flex h-16 w-16 flex-col items-center justify-center rounded border-2 border-dashed border-info/30 text-info/50"
+																>
 																	<span class="loading loading-xs loading-dots"></span>
 																	<span class="text-[8px]">{img.status}</span>
 																</div>
 															{:else if img.status === 'failed'}
-																<div class="flex h-16 w-16 items-center justify-center rounded border-2 border-dashed border-error/30 text-error/50 text-[8px]">
+																<div
+																	class="flex h-16 w-16 items-center justify-center rounded border-2 border-dashed border-error/30 text-[8px] text-error/50"
+																>
 																	Failed
 																</div>
 															{/if}
@@ -1399,7 +1622,8 @@
 							<div>
 								<h2 class="card-title text-lg">Batch Image Queue</h2>
 								<p class="text-sm text-base-content/50">
-									{refImageBatchQueue.length} item{refImageBatchQueue.length !== 1 ? 's' : ''} queued (1 credit each). Images will be processed within 15 minutes.
+									{refImageBatchQueue.length} item{refImageBatchQueue.length !== 1 ? 's' : ''} queued
+									(1 credit each). Images will be processed within 15 minutes.
 								</p>
 							</div>
 							<div class="flex gap-2">
@@ -1429,7 +1653,7 @@
 			<!-- Phase 1 → 2 -->
 			{#if phase1Complete}
 				<div class="flex justify-end">
-					<button class="btn gap-2 btn-primary" onclick={() => (activePhase = 2)}>
+					<button class="btn gap-2 btn-primary" onclick={() => gotoStep('refine')}>
 						Continue to Refine
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
@@ -1448,7 +1672,7 @@
 	{/if}
 
 	<!-- ═══════════ PHASE 2: REFINE ═══════════ -->
-	{#if activePhase === 2}
+	{#if page.params.step === 'refine'}
 		<div class="space-y-6">
 			<!-- Step 1: Story Overview -->
 			<div class="card border border-base-300 bg-base-200">
@@ -1523,7 +1747,8 @@
 						</div>
 						{#if !hasChapters}
 							<p class="text-sm text-base-content/50">
-								Split your story overview into chapters. The AI will decide the appropriate number of chapters.
+								Split your story overview into chapters. The AI will decide the appropriate number
+								of chapters.
 							</p>
 							<button
 								class="btn mt-2 gap-2 btn-sm btn-primary"
@@ -1625,7 +1850,8 @@
 											<summary class="cursor-pointer text-xs text-base-content/50">
 												Show script ({ch.detailedScript.length} chars)
 											</summary>
-											<pre class="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-base-300 p-2 text-xs">{ch.detailedScript}</pre>
+											<pre
+												class="mt-1 max-h-40 overflow-auto rounded bg-base-300 p-2 text-xs whitespace-pre-wrap">{ch.detailedScript}</pre>
 										</details>
 									{/if}
 								</div>
@@ -1665,13 +1891,17 @@
 											<span class="badge badge-ghost badge-sm">Ch. {ch.chapterNumber}</span>
 											<span class="text-sm font-medium">{ch.title || 'Untitled'}</span>
 											{#if ch.sections && ch.sections.length > 0}
-												<span class="badge badge-xs badge-success">{ch.sections.length} sections</span>
+												<span class="badge badge-xs badge-success"
+													>{ch.sections.length} sections</span
+												>
 											{:else}
 												<span class="badge badge-xs badge-warning">no sections</span>
 											{/if}
 										</div>
 										<button
-											class="btn gap-1 btn-sm {ch.sections && ch.sections.length > 0 ? 'btn-ghost' : 'btn-primary'}"
+											class="btn gap-1 btn-sm {ch.sections && ch.sections.length > 0
+												? 'btn-ghost'
+												: 'btn-primary'}"
 											onclick={() => openChapterGenModal('sections', ch.id)}
 											disabled={generatingChapterSections[ch.id] || generatingAllSections}
 										>
@@ -1693,7 +1923,7 @@
 			<!-- Phase 2 → 3 -->
 			{#if hasChaptersWithSections}
 				<div class="flex justify-end">
-					<button class="btn gap-2 btn-primary" onclick={() => (activePhase = 3)}>
+					<button class="btn gap-2 btn-primary" onclick={() => (gotoStep('script'))}>
 						Continue to Script
 						<svg
 							xmlns="http://www.w3.org/2000/svg"
@@ -1712,7 +1942,65 @@
 	{/if}
 
 	<!-- ═══════════ PHASE 3: SCRIPT ═══════════ -->
-	{#if activePhase === 3}
+	{#if page.params.step === 'script'}
+		<!-- Read Mode Toggle -->
+		<div class="mb-6 flex justify-end">
+			<label class="label cursor-pointer gap-3">
+				<span class="label-text text-sm">Read Mode</span>
+				<input type="checkbox" class="toggle toggle-primary toggle-sm" bind:checked={readMode} />
+			</label>
+		</div>
+
+		{#if readMode}
+			<!-- ═══════ READ MODE ═══════ -->
+			<div class="mx-auto max-w-3xl space-y-12">
+				{#if data.chapters.length === 0}
+					<p class="text-center text-base-content/50">No chapters generated yet.</p>
+				{:else}
+					{#each data.chapters as ch}
+						<div>
+							<h2 class="mb-6 border-b border-base-300 pb-3 text-center text-2xl font-bold">
+								Chapter {ch.chapterNumber}: {ch.title || 'Untitled'}
+							</h2>
+							{#if ch.sections && ch.sections.length > 0}
+								<div class="space-y-6">
+									{#each ch.sections as sec}
+										{@const imgUrl = getSectionImageUrl(sec)}
+										<div class="space-y-2">
+											{#if imgUrl}
+												<!-- svelte-ignore a11y_click_events_have_key_events -->
+												<!-- svelte-ignore a11y_no_static_element_interactions -->
+												<div
+													class="cursor-pointer overflow-hidden rounded-lg"
+													onclick={() => openImagePreview(imgUrl)}
+												>
+													<img
+														loading="lazy"
+														src={imgUrl}
+														alt="Panel {sec.sectionNumber}"
+														class="w-full rounded-lg"
+													/>
+												</div>
+											{:else if sec.status === 'generating' || sec.status === 'queued'}
+												<div class="flex h-64 items-center justify-center rounded-lg border-2 border-dashed border-base-300">
+													<span class="loading loading-md loading-spinner text-base-content/30"></span>
+												</div>
+											{/if}
+											{#if sec.narrative}
+												<p class="px-2 text-base leading-relaxed text-base-content/80">{sec.narrative}</p>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							{:else}
+								<p class="text-center text-sm text-base-content/40">No panels for this chapter yet.</p>
+							{/if}
+						</div>
+					{/each}
+				{/if}
+			</div>
+		{:else}
+		<!-- ═══════ EDIT MODE ═══════ -->
 		<div class="space-y-6">
 			<!-- Image Generation Controls -->
 			{#if data.chapters.length > 0}
@@ -1806,10 +2094,10 @@
 				<div class="card border border-base-300 bg-base-200">
 					<div class="card-body items-center py-12 text-center">
 						<p class="text-base-content/50">No chapters generated yet.</p>
-						<button
-							class="btn mt-3 btn-sm btn-primary"
-							onclick={() => (activePhase = 2)}
-						>
+						<button class="btn mt-3 btn-sm btn-primary" onclick={() => {
+							console.log("page", page.url.pathname);
+							
+						}}>
 							Go to Refine Phase
 						</button>
 					</div>
@@ -1870,14 +2158,26 @@
 										<div class="flex gap-1">
 											<button
 												class="btn btn-xs btn-primary"
-												onclick={() => startImageGeneration('fast', ch.sections.filter((s: { imagePrompt?: string | null }) => s.imagePrompt).map((s: { id: string }) => s.id))}
+												onclick={() =>
+													startImageGeneration(
+														'fast',
+														ch.sections
+															.filter((s: { imagePrompt?: string | null }) => s.imagePrompt)
+															.map((s: { id: string }) => s.id)
+													)}
 												disabled={true}
 											>
 												Generate All
 											</button>
 											<button
-												class="btn btn-xs btn-outline"
-												onclick={() => startImageGeneration('batch', ch.sections.filter((s: { imagePrompt?: string | null }) => s.imagePrompt).map((s: { id: string }) => s.id))}
+												class="btn btn-outline btn-xs"
+												onclick={() =>
+													startImageGeneration(
+														'batch',
+														ch.sections
+															.filter((s: { imagePrompt?: string | null }) => s.imagePrompt)
+															.map((s: { id: string }) => s.id)
+													)}
 												disabled={generatingImages}
 											>
 												Batch All
@@ -1910,15 +2210,27 @@
 														<div class="mt-1 flex gap-1">
 															<button
 																class="btn btn-xs btn-primary"
-																onclick={() => openSectionImageModal(sec.id, `Panel ${sec.sectionNumber}`, 'fast', sec.imagePrompt ?? '')}
+																onclick={() =>
+																	openSectionImageModal(
+																		sec.id,
+																		`Panel ${sec.sectionNumber}`,
+																		'fast',
+																		sec.imagePrompt ?? ''
+																	)}
 																disabled={true}
 															>
 																Generate
 															</button>
 															{#if !isInSectionBatch(sec.id)}
 																<button
-																	class="btn btn-xs btn-outline"
-																	onclick={() => openSectionImageModal(sec.id, `Panel ${sec.sectionNumber}`, 'batch', sec.imagePrompt ?? '')}
+																	class="btn btn-outline btn-xs"
+																	onclick={() =>
+																		openSectionImageModal(
+																			sec.id,
+																			`Panel ${sec.sectionNumber}`,
+																			'batch',
+																			sec.imagePrompt ?? ''
+																		)}
 																	disabled={generatingImages}
 																>
 																	Add to Batch
@@ -1938,7 +2250,8 @@
 																	: 'border-base-content/10'}"
 															>
 																<img
-																	src={img.imageId}
+																	loading="lazy"
+																	src={getSectionImageUrl(sec)}
 																	alt="Panel {sec.sectionNumber} v{img.version}"
 																	class="h-full w-full object-cover"
 																/>
@@ -1961,6 +2274,7 @@
 				{/each}
 			{/if}
 		</div>
+		{/if}
 	{/if}
 </div>
 
@@ -2044,11 +2358,7 @@
 		></textarea>
 		<div class="modal-action">
 			<button class="btn btn-ghost" onclick={() => storyOverviewDialog?.close()}>Cancel</button>
-			<button
-				class="btn btn-primary"
-				onclick={submitStoryOverviewModal}
-				disabled={expandingStory}
-			>
+			<button class="btn btn-primary" onclick={submitStoryOverviewModal} disabled={expandingStory}>
 				{#if expandingStory}
 					<span class="loading loading-xs loading-spinner"></span>
 					Generating...
@@ -2083,11 +2393,7 @@
 		></textarea>
 		<div class="modal-action">
 			<button class="btn btn-ghost" onclick={() => locationsDialog?.close()}>Cancel</button>
-			<button
-				class="btn btn-primary"
-				onclick={submitLocationsModal}
-				disabled={generatingLocations}
-			>
+			<button class="btn btn-primary" onclick={submitLocationsModal} disabled={generatingLocations}>
 				{#if generatingLocations}
 					<span class="loading loading-xs loading-spinner"></span>
 					Generating...
@@ -2122,11 +2428,7 @@
 		></textarea>
 		<div class="modal-action">
 			<button class="btn btn-ghost" onclick={() => editImageDialog?.close()}>Cancel</button>
-			<button
-				class="btn btn-primary"
-				onclick={submitEditImage}
-				disabled={!editImagePrompt.trim()}
-			>
+			<button class="btn btn-primary" onclick={submitEditImage} disabled={!editImagePrompt.trim()}>
 				{editImageMode === 'fast' ? 'Generate Now' : 'Add to Batch'}
 			</button>
 		</div>
@@ -2140,9 +2442,9 @@
 <dialog bind:this={previewImageDialog} class="modal">
 	<!-- svelte-ignore a11y_click_events_have_key_events -->
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
-	<div class="modal-box max-w-3xl p-2" onclick={() => previewImageDialog?.close()}>
+	<div class="modal-box max-w-5xl p-2" onclick={() => previewImageDialog?.close()}>
 		{#if previewImageUrl}
-			<img src={previewImageUrl} alt="Preview" class="w-full rounded" />
+			<img src={previewImageUrl} alt="Preview" class="max-h-[85vh] w-full rounded object-contain" />
 		{/if}
 	</div>
 	<form method="dialog" class="modal-backdrop">
@@ -2165,12 +2467,7 @@
 		></textarea>
 		<div class="modal-action">
 			<button class="btn btn-ghost" onclick={() => chapterGenDialog?.close()}>Cancel</button>
-			<button
-				class="btn btn-primary"
-				onclick={submitChapterGenModal}
-			>
-				Generate
-			</button>
+			<button class="btn btn-primary" onclick={submitChapterGenModal}> Generate </button>
 		</div>
 	</div>
 	<form method="dialog" class="modal-backdrop">

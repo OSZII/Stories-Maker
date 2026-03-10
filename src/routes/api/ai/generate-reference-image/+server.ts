@@ -204,9 +204,8 @@ async function generateReferenceImageFast(
 		if (!imageData) throw new Error('No image in response');
 
 		const imageId = crypto.randomUUID();
-		const ext = imageData.mimeType === 'image/jpeg' ? 'jpg' : 'png';
-		const key = `stories/${storyId}/${entityType}s/${entityId}/${imageId}.${ext}`;
-		await uploadImage(imageData.buffer, key, imageData.mimeType);
+		const key = `stories/${storyId}/${entityType}s/${entityId}/${imageId}.jpg`;
+		await uploadImage(imageData.buffer, key);
 
 		let newImageId: string;
 
